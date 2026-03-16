@@ -3,7 +3,14 @@
     "allow": [
       "Bash(cd:*)",
       "Bash(npx tsc:*)",
-      "Bash(npm install:*)"
+      "Bash(npm install:*)",
+      "Bash(find:*)",
+      "Bash(wc:*)",
+      "Bash(taskkill:*)",
+      "Bash(npm run:*)",
+      "Bash(grep:*)",
+      "Bash(curl:*)",
+      "Bash(npx vite:*)"
     ]
   }
 }

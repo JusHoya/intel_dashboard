@@ -4,11 +4,13 @@ import {
   Ion,
   Color,
   Cartesian3,
+  BoundingSphere,
   ImageryLayer,
   TileMapServiceImageryProvider,
   EllipsoidTerrainProvider,
   buildModuleUrl,
   ScreenSpaceEventType,
+  Math as CesiumMath,
   defined,
   type Viewer as CesiumViewer,
   type Cartesian2,
@@ -78,14 +80,23 @@ function GlobeViewer({ children }: GlobeViewerProps) {
         const entity = picked.id
         const name: string = entity.name ?? entity.id ?? 'Unknown'
 
-        // Try to get position from entity
+        // Try to get position from entity (point entities have .position,
+        // polygon entities need centroid computed from their hierarchy)
         let latitude = 0
         let longitude = 0
         const pos = entity.position?.getValue(viewer.clock.currentTime)
         if (pos) {
           const carto = viewer.scene.globe.ellipsoid.cartesianToCartographic(pos)
-          latitude = carto.latitude * (180 / Math.PI)
-          longitude = carto.longitude * (180 / Math.PI)
+          latitude = CesiumMath.toDegrees(carto.latitude)
+          longitude = CesiumMath.toDegrees(carto.longitude)
+        } else if (entity.polygon) {
+          const hierarchy = entity.polygon.hierarchy?.getValue(viewer.clock.currentTime)
+          if (hierarchy && hierarchy.positions && hierarchy.positions.length > 0) {
+            const center = BoundingSphere.fromPoints(hierarchy.positions).center
+            const carto = viewer.scene.globe.ellipsoid.cartesianToCartographic(center)
+            latitude = CesiumMath.toDegrees(carto.latitude)
+            longitude = CesiumMath.toDegrees(carto.longitude)
+          }
         }
 
         // Determine entity type from custom properties

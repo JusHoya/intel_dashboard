@@ -5,7 +5,7 @@ import type { FlightState } from '../src/types/flights.js'
 const app = express()
 const PORT = 3001
 
-app.use(cors({ origin: 'http://localhost:5173' }))
+app.use(cors({ origin: /^http:\/\/localhost:\d+$/ }))
 
 /** Transform OpenSky state array into a FlightState object */
 function parseStateVector(state: unknown[]): FlightState {
@@ -116,5 +116,5 @@ app.get('/api/flights', async (_req, res) => {
 
 app.listen(PORT, () => {
   console.log(`[server] Flight proxy running on http://localhost:${PORT}`)
-  console.log(`[server] CORS enabled for http://localhost:5173`)
+  console.log(`[server] CORS enabled for localhost origins`)
 })
