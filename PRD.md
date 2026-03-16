@@ -389,10 +389,10 @@ This is the most important test regime — it validates whether intelligence sig
 
 ### Sprint 1 (Week 1-2): Skeleton
 - [x] Project scaffolding (Vite + React + TypeScript)
-- [ ] CesiumJS globe rendering with dark basemap
-- [ ] Basic panel layout system (4-panel grid)
-- [ ] Status bar with UTC clock
-- [ ] Dark terminal theme with CRT accent styling
+- [x] CesiumJS globe rendering with dark basemap
+- [x] Basic panel layout system (4-panel grid)
+- [x] Status bar with UTC clock
+- [x] Dark terminal theme with CRT accent styling
 
 ### Sprint 2 (Week 3-4): Globe Interactivity
 - [ ] Country boundary data loaded onto globe (GeoJSON)

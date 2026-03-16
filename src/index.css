@@ -1,0 +1,80 @@
+/* ==========================================================================
+   SIGINT Dashboard — Main CSS Entry Point
+   ========================================================================== */
+
+@import "tailwindcss";
+
+@import "./styles/fonts.css";
+@import "./styles/theme.css";
+@import "./styles/scanlines.css";
+
+/* ==========================================================================
+   Global layout
+   ========================================================================== */
+
+html,
+body {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+}
+
+#root {
+  width: 100vw;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* ==========================================================================
+   react-mosaic overrides — dark terminal theme
+   ========================================================================== */
+
+.mosaic-blueprint-theme.mosaic {
+  background: transparent;
+}
+
+.mosaic-blueprint-theme .mosaic-tile {
+  margin: 1px;
+}
+
+.mosaic-blueprint-theme .mosaic-window {
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.mosaic-blueprint-theme .mosaic-window .mosaic-window-toolbar {
+  background-color: var(--color-surface);
+  border-bottom: 1px solid var(--color-border);
+  color: var(--color-primary);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  height: 28px;
+  min-height: 28px;
+}
+
+.mosaic-blueprint-theme .mosaic-window .mosaic-window-body {
+  background-color: var(--color-bg);
+}
+
+.mosaic-blueprint-theme .mosaic-split {
+  background-color: var(--color-border);
+}
+
+.mosaic-blueprint-theme .mosaic-split.-row {
+  width: 1px;
+  margin: 0;
+}
+
+.mosaic-blueprint-theme .mosaic-split.-column {
+  height: 1px;
+  margin: 0;
+}
+
+.mosaic-blueprint-theme .mosaic-split:hover {
+  background-color: var(--color-primary);
+}

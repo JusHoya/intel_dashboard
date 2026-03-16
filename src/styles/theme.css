@@ -1,0 +1,98 @@
+/* ==========================================================================
+   SIGINT Dashboard — Terminal Theme
+   Color system, base styles, and utility classes
+   ========================================================================== */
+
+:root {
+  /* --- Primary palette --- */
+  --color-primary: #00ff41;
+  --color-secondary: #ffb000;
+  --color-warning: #ff0040;
+
+  /* --- Surfaces --- */
+  --color-bg: #0a0a0f;
+  --color-surface: #0d0d12;
+  --color-border: #1a1a2e;
+
+  /* --- Text --- */
+  --color-text: #00ff41;
+  --color-text-muted: #3a3a4a;
+  --color-text-dim: #00cc34;
+
+  /* --- Semantic status --- */
+  --color-online: #00ff41;
+  --color-degraded: #ffb000;
+  --color-offline: #ff0040;
+
+  /* --- Typography --- */
+  --font-mono: 'JetBrains Mono', 'IBM Plex Mono', ui-monospace, Consolas, monospace;
+
+  /* --- Glow --- */
+  --glow-primary: 0 0 4px rgba(0, 255, 65, 0.45);
+  --glow-primary-strong: 0 0 8px rgba(0, 255, 65, 0.6);
+}
+
+/* ==========================================================================
+   Base element styles
+   ========================================================================== */
+
+body {
+  margin: 0;
+  padding: 0;
+  background-color: var(--color-bg);
+  color: var(--color-text);
+  font-family: var(--font-mono);
+  font-size: 14px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* ==========================================================================
+   Selection
+   ========================================================================== */
+
+::selection {
+  background-color: rgba(0, 255, 65, 0.25);
+  color: #ffffff;
+}
+
+/* ==========================================================================
+   Scrollbar — thin & dark
+   ========================================================================== */
+
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--color-bg);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--color-border);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-text-muted);
+}
+
+/* Firefox */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-border) var(--color-bg);
+}
+
+/* ==========================================================================
+   Utility: glow effect
+   ========================================================================== */
+
+.glow {
+  text-shadow: var(--glow-primary);
+}
+
+.glow-strong {
+  text-shadow: var(--glow-primary-strong);
+}

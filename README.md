@@ -13,7 +13,7 @@
 
 A browser-based intelligence dashboard fusing real-time geospatial, geopolitical, and financial data into a single terminal-grade interface. Bloomberg Terminal meets classified intelligence workstation.
 
-> **Status:** `PRE-ALPHA` | **Current Sprint:** 1 of 7 — Skeleton | **Last Updated:** 2026-03-15
+> **Status:** `PRE-ALPHA` | **Current Sprint:** 1 COMPLETE | **Last Updated:** 2026-03-15
 
 ---
 
@@ -38,7 +38,7 @@ npm test
 npm run build
 ```
 
-> Sprint 1 is not yet complete — the app is not runnable yet. Check back after Sprint 1 closes.
+> Sprint 1 complete — run `npm run dev` to launch the dashboard.
 
 ---
 
@@ -131,7 +131,7 @@ Inspired by [Bilawal Sidhu's WorldView](https://x.com/bilawalsidhu) — the inte
 ### Overall Roadmap
 
 ```
-Sprint 1 ████░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░  IN PROGRESS
+Sprint 1 ████████████████████████████████████  COMPLETE
 Sprint 2 ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░  NOT STARTED
 Sprint 3 ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░  NOT STARTED
 Sprint 4 ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░  NOT STARTED
@@ -147,11 +147,11 @@ Sprint 7 ░░░░░░░░░░░░░░░░░░░░░░░�
 
 | # | Task | Status | Notes |
 |---|------|--------|-------|
-| 1.1 | Project scaffolding (Vite + React + TS) | `NOT STARTED` | |
-| 1.2 | CesiumJS globe rendering with dark basemap | `NOT STARTED` | |
-| 1.3 | Basic panel layout system (4-panel grid) | `NOT STARTED` | |
-| 1.4 | Status bar with UTC clock | `NOT STARTED` | |
-| 1.5 | Dark terminal theme with CRT accent styling | `NOT STARTED` | |
+| 1.1 | Project scaffolding (Vite + React + TS) | `DONE` | Vite 8, React 19, TypeScript strict |
+| 1.2 | CesiumJS globe rendering with dark basemap | `DONE` | Dark globe with day/night terminator via resium |
+| 1.3 | Basic panel layout system (4-panel grid) | `DONE` | react-mosaic 2x2 grid, 65/35 split favoring globe |
+| 1.4 | Status bar with UTC clock | `DONE` | UTC clock, session uptime, feed health indicators |
+| 1.5 | Dark terminal theme with CRT accent styling | `DONE` | Phosphor green theme, CRT scanlines, JetBrains Mono |
 
 **Sprint 1 Deliverable:** Browser opens → dark terminal UI with interactive 3D globe + placeholder panels
 
@@ -268,8 +268,8 @@ Sprint 7 ░░░░░░░░░░░░░░░░░░░░░░░�
 
 | Layer | Framework | Target | Current |
 |-------|-----------|--------|---------|
-| Unit Tests | Vitest | 90% (business logic) | 0% |
-| Component Tests | React Testing Library | All panels render | 0% |
+| Unit Tests | Vitest | 90% (business logic) | 20 tests passing |
+| Component Tests | React Testing Library | All panels render | StatusBar, PlaceholderPanel, ScanlineOverlay |
 | Integration Tests | Playwright | Core user flows | 0% |
 | Data Feed Validation | Zod | All API responses | 0% |
 | Visual Regression | Playwright screenshots | All shader modes | 0% |
@@ -365,6 +365,15 @@ intel_dashboard/
 ---
 
 ## Changelog
+
+### 2026-03-15 — Sprint 1 Complete
+- Vite 8 + React 19 + TypeScript (strict) scaffolding
+- CesiumJS globe rendering via resium with dark basemap and day/night terminator
+- react-mosaic 4-panel tiling layout (Globe, Financial, Intel Feed, Signals)
+- Terminal status bar with UTC clock, session uptime, feed health indicators
+- CRT terminal theme: phosphor green (#00ff41), scanline overlay, JetBrains Mono
+- Zustand stores for layout, globe, and app state
+- 20 unit/component tests passing (Vitest + React Testing Library)
 
 ### 2026-03-15 — Project Inception
 - Created PRD with full architecture, feature spec, and test methodology
