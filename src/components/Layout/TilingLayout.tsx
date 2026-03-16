@@ -4,13 +4,14 @@ import 'react-mosaic-component/react-mosaic-component.css'
 
 import type { PanelId } from '../../types'
 import { PlaceholderPanel } from '../Panels/PlaceholderPanel'
-import { GlobeViewer } from '../Globe'
+import { InfoPanel } from '../Panels/InfoPanel'
+import { GlobeViewer, CountryLayer, CityMarkers, FlightLayer } from '../Globe'
 
 export const PANEL_TITLES: Record<PanelId, string> = {
   globe: 'GLOBE',
   financial: 'FINANCIAL',
   news: 'INTEL FEED',
-  signals: 'SIGNALS',
+  signals: 'ENTITY INTEL',
 }
 
 const INITIAL_LAYOUT: MosaicNode<PanelId> = {
@@ -40,8 +41,14 @@ function renderTile(id: PanelId, path: number[]) {
     <MosaicWindow<PanelId> path={path} title={title}>
       {id === 'globe' ? (
         <div id="globe-container" style={{ width: '100%', height: '100%' }}>
-          <GlobeViewer />
+          <GlobeViewer>
+            <CountryLayer />
+            <CityMarkers />
+            <FlightLayer />
+          </GlobeViewer>
         </div>
+      ) : id === 'signals' ? (
+        <InfoPanel />
       ) : (
         <PlaceholderPanel title={title} id={id} />
       )}

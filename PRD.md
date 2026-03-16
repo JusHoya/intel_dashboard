@@ -395,12 +395,12 @@ This is the most important test regime — it validates whether intelligence sig
 - [x] Dark terminal theme with CRT accent styling
 
 ### Sprint 2 (Week 3-4): Globe Interactivity
-- [ ] Country boundary data loaded onto globe (GeoJSON)
-- [ ] Click-to-select country → info panel
-- [ ] Camera fly-to animation on selection
-- [ ] Major city markers with labels
-- [ ] Night/day terminator line
-- [ ] Flight tracking (OpenSky) — planes on globe
+- [x] Country boundary data loaded onto globe (GeoJSON)
+- [x] Click-to-select country → info panel
+- [x] Camera fly-to animation on selection
+- [x] Major city markers with labels
+- [x] Night/day terminator line
+- [x] Flight tracking (OpenSky) — planes on globe
 
 ### Sprint 3 (Week 5-6): Financial Core
 - [ ] Ticker watchlist panel with live crypto prices (Binance WS)

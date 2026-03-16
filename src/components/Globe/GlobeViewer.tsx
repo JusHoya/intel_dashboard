@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useRef } from 'react'
-import { Viewer as ResiumViewer } from 'resium'
+import { type ReactNode, useCallback, useEffect, useRef } from 'react'
+import { Viewer as ResiumViewer, ScreenSpaceEventHandler, ScreenSpaceEvent } from 'resium'
 import {
   Ion,
   Color,
@@ -8,61 +8,48 @@ import {
   TileMapServiceImageryProvider,
   EllipsoidTerrainProvider,
   buildModuleUrl,
+  ScreenSpaceEventType,
+  defined,
   type Viewer as CesiumViewer,
+  type Cartesian2,
 } from 'cesium'
 import { useGlobeStore } from '../../store/globe'
 
-// Disable Ion so Cesium doesn't try to fetch Ion-based assets
 Ion.defaultAccessToken = ''
 
-// Flat ellipsoid terrain (no Ion terrain requests)
 const defaultTerrain = new EllipsoidTerrainProvider()
-
-// Use the bundled Natural Earth II imagery (ships with CesiumJS, no API key needed)
 const defaultBaseLayer = ImageryLayer.fromProviderAsync(
   TileMapServiceImageryProvider.fromUrl(
     buildModuleUrl('Assets/Textures/NaturalEarthII'),
   ),
 )
-
-// Stable detached element for credit container (avoids viewer recreation on re-render)
 const creditDiv = document.createElement('div')
 
-function GlobeViewer() {
+interface GlobeViewerProps {
+  children?: ReactNode
+}
+
+function GlobeViewer({ children }: GlobeViewerProps) {
   const viewerRef = useRef<CesiumViewer | null>(null)
   const setGlobeReady = useGlobeStore((s) => s.setGlobeReady)
+  const selectEntity = useGlobeStore((s) => s.selectEntity)
+  const clearSelection = useGlobeStore((s) => s.clearSelection)
 
   const handleViewerReady = useCallback(
     (viewer: CesiumViewer) => {
       viewerRef.current = viewer
-
-      // Dark globe base color (shown where no imagery tiles exist)
       viewer.scene.globe.baseColor = Color.fromCssColorString('#0a0a0f')
-
-      // Enable day/night terminator lighting
       viewer.scene.globe.enableLighting = true
-
-      // Dark background for space around the globe
       viewer.scene.backgroundColor = Color.fromCssColorString('#000005')
 
-      // Disable the default sun / moon / skyBox so the backdrop stays pure dark
-      if (viewer.scene.sun) {
-        viewer.scene.sun.show = false
-      }
-      if (viewer.scene.moon) {
-        viewer.scene.moon.show = false
-      }
-      if (viewer.scene.skyBox) {
-        viewer.scene.skyBox.show = false
-      }
-      if (viewer.scene.skyAtmosphere) {
-        viewer.scene.skyAtmosphere.show = false
-      }
+      if (viewer.scene.sun) viewer.scene.sun.show = false
+      if (viewer.scene.moon) viewer.scene.moon.show = false
+      if (viewer.scene.skyBox) viewer.scene.skyBox.show = false
+      if (viewer.scene.skyAtmosphere) viewer.scene.skyAtmosphere.show = false
 
-      // Fly to a nice overview position (slightly tilted, centered on Europe/Africa)
       viewer.camera.flyTo({
         destination: Cartesian3.fromDegrees(20.0, 20.0, 20_000_000),
-        duration: 0, // instant on load
+        duration: 0,
       })
 
       setGlobeReady(true)
@@ -70,7 +57,6 @@ function GlobeViewer() {
     [setGlobeReady],
   )
 
-  // Capture the Cesium Viewer instance via ref callback
   const refCallback = useCallback(
     (element: { cesiumElement?: CesiumViewer } | null) => {
       if (element?.cesiumElement && element.cesiumElement !== viewerRef.current) {
@@ -80,7 +66,60 @@ function GlobeViewer() {
     [handleViewerReady],
   )
 
-  // Reset globeReady on unmount
+  // Handle left-click on entities
+  const handleClick = useCallback(
+    (event: { position: Cartesian2 } | { startPosition: Cartesian2; endPosition: Cartesian2 }) => {
+      if (!('position' in event)) return
+      const viewer = viewerRef.current
+      if (!viewer) return
+
+      const picked = viewer.scene.pick(event.position)
+      if (defined(picked) && picked.id) {
+        const entity = picked.id
+        const name: string = entity.name ?? entity.id ?? 'Unknown'
+
+        // Try to get position from entity
+        let latitude = 0
+        let longitude = 0
+        const pos = entity.position?.getValue(viewer.clock.currentTime)
+        if (pos) {
+          const carto = viewer.scene.globe.ellipsoid.cartesianToCartographic(pos)
+          latitude = carto.latitude * (180 / Math.PI)
+          longitude = carto.longitude * (180 / Math.PI)
+        }
+
+        // Determine entity type from custom properties
+        const entityType = entity.properties?.entityType?.getValue(viewer.clock.currentTime) ?? 'country'
+
+        selectEntity({
+          id: entity.id ?? name,
+          type: entityType,
+          name,
+          coordinates: { latitude, longitude },
+          metadata: entity.properties
+            ? Object.fromEntries(
+                entity.properties.propertyNames.map((p: string) => [
+                  p,
+                  entity.properties?.[p]?.getValue(viewer.clock.currentTime),
+                ]),
+              )
+            : undefined,
+        })
+
+        // Camera fly-to the selected entity
+        if (latitude !== 0 || longitude !== 0) {
+          viewer.camera.flyTo({
+            destination: Cartesian3.fromDegrees(longitude, latitude, 5_000_000),
+            duration: 1.5,
+          })
+        }
+      } else {
+        clearSelection()
+      }
+    },
+    [selectEntity, clearSelection],
+  )
+
   useEffect(() => {
     return () => {
       viewerRef.current = null
@@ -109,7 +148,15 @@ function GlobeViewer() {
         terrainProvider={defaultTerrain}
         baseLayer={defaultBaseLayer}
         creditContainer={creditDiv}
-      />
+      >
+        <ScreenSpaceEventHandler>
+          <ScreenSpaceEvent
+            action={handleClick}
+            type={ScreenSpaceEventType.LEFT_CLICK}
+          />
+        </ScreenSpaceEventHandler>
+        {children}
+      </ResiumViewer>
     </div>
   )
 }

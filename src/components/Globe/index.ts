@@ -1,2 +1,5 @@
 export { default as GlobeViewer } from './GlobeViewer'
 export { default } from './GlobeViewer'
+export { CountryLayer } from './CountryLayer'
+export { CityMarkers } from './CityMarkers'
+export { FlightLayer } from './FlightLayer'
