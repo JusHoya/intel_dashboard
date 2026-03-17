@@ -10,7 +10,19 @@
       "Bash(npm run:*)",
       "Bash(grep:*)",
       "Bash(curl:*)",
-      "Bash(npx vite:*)"
+      "Bash(npx vite:*)",
+      "Bash(npx vitest:*)",
+      "mcp__playwright__browser_navigate",
+      "mcp__playwright__browser_take_screenshot",
+      "mcp__playwright__browser_evaluate",
+      "mcp__playwright__browser_console_messages",
+      "mcp__playwright__browser_close",
+      "Bash(python3 -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\(f''''Flights: {len\\(d[\"\"flights\"\"]\\)}, Timestamp: {d[\"\"timestamp\"\"]}''''\\)\")",
+      "Bash(git:*)"
     ]
-  }
+  },
+  "enableAllProjectMcpServers": true,
+  "enabledMcpjsonServers": [
+    "playwright"
+  ]
 }

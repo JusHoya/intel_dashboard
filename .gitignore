@@ -6,6 +6,11 @@ yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
+log/*
+!log/.gitkeep
+
+# Screenshots
+*.png
 
 node_modules
 dist

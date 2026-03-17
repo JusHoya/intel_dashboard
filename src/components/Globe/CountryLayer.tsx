@@ -1,6 +1,7 @@
 import { useCallback } from 'react'
 import { GeoJsonDataSource } from 'resium'
 import {
+  ArcType,
   Color,
   ColorMaterialProperty,
   ConstantProperty,
@@ -22,12 +23,15 @@ export function CountryLayer() {
         entity.properties.addProperty('entityType', 'country')
       }
 
-      // Style polygons with visible fill and outline
+      // Style polygons with visible fill and outline.
+      // ArcType.NONE avoids the expensive rhumb-line subdivision that
+      // crashes on very complex polygons (Russia, Canada, etc.).
       if (entity.polygon) {
         entity.polygon.material = new ColorMaterialProperty(FILL_COLOR)
         entity.polygon.outline = new ConstantProperty(true)
         entity.polygon.outlineColor = new ConstantProperty(STROKE_COLOR)
         entity.polygon.outlineWidth = new ConstantProperty(1)
+        entity.polygon.arcType = new ConstantProperty(ArcType.GEODESIC)
       }
 
       // Style polylines
@@ -44,6 +48,7 @@ export function CountryLayer() {
       fill={FILL_COLOR}
       stroke={STROKE_COLOR}
       strokeWidth={1.5}
+      clampToGround={false}
       onLoad={handleLoad}
     />
   )

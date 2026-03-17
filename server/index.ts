@@ -7,6 +7,20 @@ const PORT = 3001
 
 app.use(cors({ origin: /^http:\/\/localhost:\d+$/ }))
 
+/* ── Server-side flight data cache ─────────────────────────────────────
+   OpenSky Network rate-limits anonymous users aggressively (~100 req/day
+   for unauthenticated, stricter under load).  We cache the last successful
+   response and only re-fetch when the cache is stale.  The frontend polls
+   every 15 s, but the server hits OpenSky at most once per CACHE_TTL_MS. */
+
+const CACHE_TTL_MS = 30_000 // 30 seconds
+interface FlightCache {
+  flights: FlightState[]
+  timestamp: number
+  fetchedAt: number // Date.now() when we last called OpenSky
+}
+let flightCache: FlightCache | null = null
+
 /** Transform OpenSky state array into a FlightState object */
 function parseStateVector(state: unknown[]): FlightState {
   return {
@@ -71,46 +85,70 @@ function generateMockFlights(): FlightState[] {
   ]
 }
 
+/** Fetch fresh data from OpenSky Network, updating the cache on success. */
+async function fetchFromOpenSky(): Promise<FlightCache> {
+  console.log('[flights] Fetching from OpenSky Network...')
+
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(), 10_000)
+
+  const response = await fetch('https://opensky-network.org/api/states/all', {
+    signal: controller.signal,
+  })
+  clearTimeout(timeout)
+
+  if (!response.ok) {
+    throw new Error(`OpenSky returned status ${response.status}`)
+  }
+
+  const data = (await response.json()) as { time: number; states: unknown[][] | null }
+
+  if (!data.states || !Array.isArray(data.states)) {
+    throw new Error('OpenSky returned no state vectors')
+  }
+
+  const flights: FlightState[] = data.states
+    .map(parseStateVector)
+    .filter((f): f is FlightState & { latitude: number; longitude: number } =>
+      f.latitude !== null && f.longitude !== null,
+    )
+
+  console.log(`[flights] Fetched ${flights.length} active flights from OpenSky`)
+
+  const cache: FlightCache = { flights, timestamp: data.time, fetchedAt: Date.now() }
+  flightCache = cache
+  return cache
+}
+
 app.get('/api/flights', async (_req, res) => {
+  // Serve from cache if still fresh
+  if (flightCache && Date.now() - flightCache.fetchedAt < CACHE_TTL_MS) {
+    const age = ((Date.now() - flightCache.fetchedAt) / 1000).toFixed(1)
+    console.log(`[flights] Serving ${flightCache.flights.length} flights from cache (age: ${age}s)`)
+    res.json({ flights: flightCache.flights, timestamp: flightCache.timestamp })
+    return
+  }
+
   try {
-    console.log('[flights] Fetching from OpenSky Network...')
-
-    const controller = new AbortController()
-    const timeout = setTimeout(() => controller.abort(), 10_000)
-
-    const response = await fetch('https://opensky-network.org/api/states/all', {
-      signal: controller.signal,
-    })
-    clearTimeout(timeout)
-
-    if (!response.ok) {
-      throw new Error(`OpenSky returned status ${response.status}`)
-    }
-
-    const data = (await response.json()) as { time: number; states: unknown[][] | null }
-
-    if (!data.states || !Array.isArray(data.states)) {
-      throw new Error('OpenSky returned no state vectors')
-    }
-
-    const flights: FlightState[] = data.states
-      .map(parseStateVector)
-      .filter((f): f is FlightState & { latitude: number; longitude: number } =>
-        f.latitude !== null && f.longitude !== null,
-      )
-
-    console.log(`[flights] Fetched ${flights.length} active flights from OpenSky`)
-
-    res.json({ flights, timestamp: data.time })
+    const cache = await fetchFromOpenSky()
+    res.json({ flights: cache.flights, timestamp: cache.timestamp })
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
-    console.warn(`[flights] OpenSky unavailable (${message}), returning mock data`)
+    console.warn(`[flights] OpenSky unavailable (${message})`)
 
-    const mockFlights = generateMockFlights()
-    res.json({
-      flights: mockFlights,
-      timestamp: Math.floor(Date.now() / 1000),
-    })
+    // Return stale cache if available, otherwise mock data
+    if (flightCache) {
+      const age = ((Date.now() - flightCache.fetchedAt) / 1000).toFixed(1)
+      console.log(`[flights] Returning stale cache (age: ${age}s)`)
+      res.json({ flights: flightCache.flights, timestamp: flightCache.timestamp })
+    } else {
+      console.log('[flights] No cache available, returning mock data')
+      const mockFlights = generateMockFlights()
+      res.json({
+        flights: mockFlights,
+        timestamp: Math.floor(Date.now() / 1000),
+      })
+    }
   }
 })
 
