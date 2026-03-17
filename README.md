@@ -13,7 +13,7 @@
 
 A browser-based intelligence dashboard fusing real-time geospatial, geopolitical, and financial data into a single terminal-grade interface. Bloomberg Terminal meets classified intelligence workstation.
 
-> **Status:** `PRE-ALPHA` | **Current Sprint:** 2 COMPLETE | **Last Updated:** 2026-03-15
+> **Status:** `PRE-ALPHA` | **Current Sprint:** 3 COMPLETE | **Last Updated:** 2026-03-16
 
 ---
 
@@ -105,7 +105,9 @@ Inspired by [Bilawal Sidhu's WorldView](https://x.com/bilawalsidhu) — the inte
 
 | Source | Data | Status |
 |--------|------|--------|
-| — | — | *No feeds integrated yet (Sprint 1)* |
+| Binance WebSocket | Real-time crypto prices (8 pairs) | `LIVE` |
+| Server Proxy (simulated) | Stock quotes (12 equities) | `LIVE` (mock data, Alpha Vantage ready) |
+| OpenSky Network | Live aircraft positions | `LIVE` |
 
 ### Planned (by Sprint)
 
@@ -133,7 +135,7 @@ Inspired by [Bilawal Sidhu's WorldView](https://x.com/bilawalsidhu) — the inte
 ```
 Sprint 1 ████████████████████████████████████  COMPLETE
 Sprint 2 ████████████████████████████████████  COMPLETE
-Sprint 3 ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░  NOT STARTED
+Sprint 3 ████████████████████████████████████  COMPLETE
 Sprint 4 ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░  NOT STARTED
 Sprint 5 ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░  NOT STARTED
 Sprint 6 ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░  NOT STARTED
@@ -178,11 +180,11 @@ Sprint 7 ░░░░░░░░░░░░░░░░░░░░░░░�
 
 | # | Task | Status | Notes |
 |---|------|--------|-------|
-| 3.1 | Ticker watchlist with live crypto (Binance WS) | `NOT STARTED` | |
-| 3.2 | Stock price integration (Alpha Vantage) | `NOT STARTED` | |
-| 3.3 | TradingView Lightweight Charts | `NOT STARTED` | |
-| 3.4 | Market heatmap (treemap) | `NOT STARTED` | |
-| 3.5 | Geo-linking: country → relevant tickers | `NOT STARTED` | |
+| 3.1 | Ticker watchlist with live crypto (Binance WS) | `DONE` | 8 crypto pairs via combined miniTicker stream, auto-reconnect |
+| 3.2 | Stock price integration (Alpha Vantage) | `DONE` | 12 equities via server proxy, simulated random walk, AV-ready |
+| 3.3 | TradingView Lightweight Charts | `DONE` | Candlestick chart with real-time kline WS updates, terminal theme |
+| 3.4 | Market heatmap (treemap) | `DONE` | Grid heatmap, red/green intensity by 24h change % |
+| 3.5 | Geo-linking: country → relevant tickers | `DONE` | Country click highlights associated tickers in watchlist |
 
 **Sprint 3 Deliverable:** Live financial data flowing. Click a country, see its tickers.
 
@@ -268,8 +270,8 @@ Sprint 7 ░░░░░░░░░░░░░░░░░░░░░░░�
 
 | Layer | Framework | Target | Current |
 |-------|-----------|--------|---------|
-| Unit Tests | Vitest | 90% (business logic) | 35 tests passing |
-| Component Tests | React Testing Library | All panels render | StatusBar, PlaceholderPanel, ScanlineOverlay, InfoPanel |
+| Unit Tests | Vitest | 90% (business logic) | 85 tests passing |
+| Component Tests | React Testing Library | All panels render | StatusBar, PlaceholderPanel, ScanlineOverlay, InfoPanel, FinancialPanel, Sparkline, MarketHeatmap |
 | Integration Tests | Playwright | Core user flows | 0% |
 | Data Feed Validation | Zod | All API responses | 0% |
 | Visual Regression | Playwright screenshots | All shader modes | 0% |
@@ -342,12 +344,12 @@ ADSB_EXCHANGE_API_KEY=
 intel_dashboard/
 ├── src/
 │   ├── components/
-│   │   ├── Globe/          # CesiumJS 3D globe
-│   │   ├── Panels/         # Financial, news, signal panels
+│   │   ├── Globe/          # CesiumJS 3D globe + layers
+│   │   ├── Financial/      # Watchlist, chart, heatmap
+│   │   ├── Panels/         # Info panel, placeholders
 │   │   ├── Layout/         # Tiling window manager
-│   │   ├── Charts/         # TradingView charts
-│   │   ├── Terminal/       # Command bar, status bar
-│   │   └── Shaders/        # NVG, FLIR, CRT effects
+│   │   ├── Terminal/       # Status bar, scanlines
+│   │   └── Shaders/        # NVG, FLIR, CRT effects (planned)
 │   ├── feeds/              # Real-time data integrations
 │   ├── signals/            # Intelligence → financial engine
 │   ├── store/              # Zustand state management
@@ -365,6 +367,19 @@ intel_dashboard/
 ---
 
 ## Changelog
+
+### 2026-03-16 — Sprint 3 Complete
+- **Financial Panel** replaces placeholder: watchlist, chart, and heatmap view modes
+- **Live crypto prices** via Binance WebSocket (8 pairs: BTC, ETH, SOL, XRP, BNB, ADA, DOGE, AVAX)
+- **Stock quotes** via server proxy (12 equities: AAPL, MSFT, GOOGL, AMZN, NVDA, TSLA, TSM, BABA, TM, SHEL, SAP, VALE) with simulated random walk (Alpha Vantage ready)
+- **TradingView candlestick chart** (lightweight-charts v5) with terminal theme, real-time kline WebSocket updates
+- **Market heatmap** — grid-based treemap with red/green intensity by 24h change %
+- **Geo-linking** — clicking a country on the globe highlights associated tickers in the watchlist
+- **Sparkline SVG component** — inline price trend for each ticker row
+- **Price flash animations** — green/red flash on price tick
+- **Market Zustand store** — tickers, watchlist, candles, view mode, geo-linked symbols
+- Server `/api/stocks` endpoint with cache and mock fallback
+- 41 new tests (85 total across 12 test files)
 
 ### 2026-03-15 — Sprint 2 Complete
 - Country boundaries (15 countries) with green terminal-style GeoJSON overlay

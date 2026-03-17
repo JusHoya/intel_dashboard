@@ -18,7 +18,16 @@
       "mcp__playwright__browser_console_messages",
       "mcp__playwright__browser_close",
       "Bash(python3 -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\(f''''Flights: {len\\(d[\"\"flights\"\"]\\)}, Timestamp: {d[\"\"timestamp\"\"]}''''\\)\")",
-      "Bash(git:*)"
+      "Bash(git:*)",
+      "Bash(npm test:*)",
+      "Bash(node -e \"console.log\\(require\\(''lightweight-charts/package.json''\\).version\\)\")",
+      "Bash(tasklist)",
+      "Bash(netstat -ano)",
+      "Bash(findstr ':3001 :5173')",
+      "mcp__playwright__browser_wait_for",
+      "Bash(python3 -c \"import json,sys; data=json.load\\(sys.stdin\\); usdt=[d[''''symbol''''] for d in data if d[''''symbol''''].endswith\\(''''USDT''''\\)]; print\\(''''\\\\n''''.join\\(sorted\\(usdt\\)\\)\\)\")",
+      "Bash(python3 -c \"import json,sys; d=json.load\\(sys.stdin\\)[''''chart''''][''''result''''][0][''''meta'''']; print\\(json.dumps\\({k:d[k] for k in [''''symbol'''',''''regularMarketPrice'''',''''regularMarketDayHigh'''',''''regularMarketDayLow'''',''''regularMarketVolume'''',''''previousClose'''',''''chartPreviousClose''''] if k in d}, indent=2\\)\\)\")",
+      "Bash(python3 -c \"import json,sys; d=json.load\\(sys.stdin\\); print\\(json.dumps\\(d.get\\(''''chart'''',{}\\).get\\(''''error'''',''''no error''''\\)\\)\\)\")"
     ]
   },
   "enableAllProjectMcpServers": true,

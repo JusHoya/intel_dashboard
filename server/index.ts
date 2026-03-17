@@ -85,14 +85,28 @@ function generateMockFlights(): FlightState[] {
   ]
 }
 
+/** Optional bounding box for OpenSky queries */
+interface BoundingBox {
+  lamin: number
+  lomin: number
+  lamax: number
+  lomax: number
+}
+
 /** Fetch fresh data from OpenSky Network, updating the cache on success. */
-async function fetchFromOpenSky(): Promise<FlightCache> {
-  console.log('[flights] Fetching from OpenSky Network...')
+async function fetchFromOpenSky(bbox?: BoundingBox): Promise<FlightCache> {
+  let url = 'https://opensky-network.org/api/states/all'
+  if (bbox) {
+    url += `?lamin=${bbox.lamin}&lomin=${bbox.lomin}&lamax=${bbox.lamax}&lomax=${bbox.lomax}`
+    console.log(`[flights] Fetching from OpenSky (bbox: ${bbox.lamin.toFixed(1)},${bbox.lomin.toFixed(1)} → ${bbox.lamax.toFixed(1)},${bbox.lomax.toFixed(1)})...`)
+  } else {
+    console.log('[flights] Fetching from OpenSky Network (global)...')
+  }
 
   const controller = new AbortController()
   const timeout = setTimeout(() => controller.abort(), 10_000)
 
-  const response = await fetch('https://opensky-network.org/api/states/all', {
+  const response = await fetch(url, {
     signal: controller.signal,
   })
   clearTimeout(timeout)
@@ -116,13 +130,26 @@ async function fetchFromOpenSky(): Promise<FlightCache> {
   console.log(`[flights] Fetched ${flights.length} active flights from OpenSky`)
 
   const cache: FlightCache = { flights, timestamp: data.time, fetchedAt: Date.now() }
-  flightCache = cache
+  // Only update global cache for non-bbox queries
+  if (!bbox) {
+    flightCache = cache
+  }
   return cache
 }
 
-app.get('/api/flights', async (_req, res) => {
-  // Serve from cache if still fresh
-  if (flightCache && Date.now() - flightCache.fetchedAt < CACHE_TTL_MS) {
+app.get('/api/flights', async (req, res) => {
+  // Parse optional bounding box parameters
+  const lamin = parseFloat(req.query.lamin as string)
+  const lomin = parseFloat(req.query.lomin as string)
+  const lamax = parseFloat(req.query.lamax as string)
+  const lomax = parseFloat(req.query.lomax as string)
+  const hasBbox = [lamin, lomin, lamax, lomax].every((v) => !isNaN(v))
+  const bbox: BoundingBox | undefined = hasBbox
+    ? { lamin, lomin, lamax, lomax }
+    : undefined
+
+  // For non-bbox (global) requests, serve from cache if still fresh
+  if (!bbox && flightCache && Date.now() - flightCache.fetchedAt < CACHE_TTL_MS) {
     const age = ((Date.now() - flightCache.fetchedAt) / 1000).toFixed(1)
     console.log(`[flights] Serving ${flightCache.flights.length} flights from cache (age: ${age}s)`)
     res.json({ flights: flightCache.flights, timestamp: flightCache.timestamp })
@@ -130,7 +157,7 @@ app.get('/api/flights', async (_req, res) => {
   }
 
   try {
-    const cache = await fetchFromOpenSky()
+    const cache = await fetchFromOpenSky(bbox)
     res.json({ flights: cache.flights, timestamp: cache.timestamp })
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
@@ -140,7 +167,22 @@ app.get('/api/flights', async (_req, res) => {
     if (flightCache) {
       const age = ((Date.now() - flightCache.fetchedAt) / 1000).toFixed(1)
       console.log(`[flights] Returning stale cache (age: ${age}s)`)
-      res.json({ flights: flightCache.flights, timestamp: flightCache.timestamp })
+
+      // If bbox requested, filter cached flights client-side
+      let flights = flightCache.flights
+      if (bbox) {
+        flights = flights.filter(
+          (f) =>
+            f.latitude !== null &&
+            f.longitude !== null &&
+            f.latitude >= bbox.lamin &&
+            f.latitude <= bbox.lamax &&
+            f.longitude >= bbox.lomin &&
+            f.longitude <= bbox.lomax,
+        )
+      }
+
+      res.json({ flights, timestamp: flightCache.timestamp })
     } else {
       console.log('[flights] No cache available, returning mock data')
       const mockFlights = generateMockFlights()
@@ -152,7 +194,187 @@ app.get('/api/flights', async (_req, res) => {
   }
 })
 
+/* ── Stock price proxy ────────────────────────────────────────────────
+   Fetches real stock quotes from Yahoo Finance (v8 chart API).
+   Each symbol is fetched individually then cached for 60 seconds. */
+
+interface StockCache {
+  quotes: StockQuote[]
+  fetchedAt: number
+}
+
+interface StockQuote {
+  symbol: string
+  price: number
+  change: number
+  changePercent: number
+  volume: number
+  high: number
+  low: number
+  prevClose: number
+}
+
+const STOCK_CACHE_TTL_MS = 60_000
+let stockCache: StockCache | null = null
+
+const YAHOO_USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+
+/** Fetch a single stock quote from Yahoo Finance */
+async function fetchYahooQuote(symbol: string): Promise<StockQuote | null> {
+  try {
+    const controller = new AbortController()
+    const timeout = setTimeout(() => controller.abort(), 8_000)
+
+    const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?interval=1d&range=1d`
+    const response = await fetch(url, {
+      signal: controller.signal,
+      headers: { 'User-Agent': YAHOO_USER_AGENT },
+    })
+    clearTimeout(timeout)
+
+    if (!response.ok) return null
+
+    const data = (await response.json()) as {
+      chart: {
+        result: Array<{
+          meta: {
+            regularMarketPrice: number
+            chartPreviousClose: number
+            regularMarketDayHigh: number
+            regularMarketDayLow: number
+            regularMarketVolume: number
+          }
+        }> | null
+      }
+    }
+
+    const meta = data.chart?.result?.[0]?.meta
+    if (!meta) return null
+
+    const price = meta.regularMarketPrice
+    const prevClose = meta.chartPreviousClose
+    const change = price - prevClose
+    const changePercent = prevClose > 0 ? (change / prevClose) * 100 : 0
+
+    return {
+      symbol,
+      price: parseFloat(price.toFixed(2)),
+      change: parseFloat(change.toFixed(2)),
+      changePercent: parseFloat(changePercent.toFixed(2)),
+      volume: meta.regularMarketVolume,
+      high: parseFloat(meta.regularMarketDayHigh.toFixed(2)),
+      low: parseFloat(meta.regularMarketDayLow.toFixed(2)),
+      prevClose: parseFloat(prevClose.toFixed(2)),
+    }
+  } catch {
+    return null
+  }
+}
+
+/** Fetch all stock quotes concurrently from Yahoo Finance */
+async function fetchAllStockQuotes(symbols: string[]): Promise<StockQuote[]> {
+  const results = await Promise.all(symbols.map(fetchYahooQuote))
+  return results.filter((q): q is StockQuote => q !== null)
+}
+
+app.get('/api/stocks', async (req, res) => {
+  const symbolsParam = typeof req.query.symbols === 'string' ? req.query.symbols : ''
+  const symbols = symbolsParam.split(',').filter(Boolean)
+
+  if (symbols.length === 0) {
+    res.status(400).json({ error: 'symbols query parameter required' })
+    return
+  }
+
+  // Serve from cache if fresh
+  if (stockCache && Date.now() - stockCache.fetchedAt < STOCK_CACHE_TTL_MS) {
+    const filtered = stockCache.quotes.filter((q) => symbols.includes(q.symbol))
+    res.json({ quotes: filtered })
+    return
+  }
+
+  try {
+    const quotes = await fetchAllStockQuotes(symbols)
+
+    if (quotes.length > 0) {
+      stockCache = { quotes, fetchedAt: Date.now() }
+      console.log(`[stocks] Serving ${quotes.length} stock quotes (Yahoo Finance)`)
+      res.json({ quotes })
+    } else {
+      throw new Error('No quotes returned')
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    console.warn(`[stocks] Yahoo Finance fetch failed (${message})`)
+
+    // Return stale cache if available
+    if (stockCache) {
+      const filtered = stockCache.quotes.filter((q) => symbols.includes(q.symbol))
+      res.json({ quotes: filtered })
+    } else {
+      res.status(502).json({ error: 'Stock data unavailable' })
+    }
+  }
+})
+
+/* ── Binance kline proxy ──────────────────────────────────────────────
+   Proxies Binance REST API kline requests to avoid CORS issues.
+   Cached per symbol+interval for 60 seconds. */
+
+const klineCache: Record<string, { data: unknown; fetchedAt: number }> = {}
+const KLINE_CACHE_TTL_MS = 60_000
+
+app.get('/api/crypto/candles', async (req, res) => {
+  const symbol = typeof req.query.symbol === 'string' ? req.query.symbol : ''
+  const interval = typeof req.query.interval === 'string' ? req.query.interval : '1h'
+  const limit = typeof req.query.limit === 'string' ? req.query.limit : '200'
+
+  if (!symbol) {
+    res.status(400).json({ error: 'symbol query parameter required' })
+    return
+  }
+
+  const cacheKey = `${symbol}_${interval}_${limit}`
+
+  // Serve from cache if fresh
+  if (klineCache[cacheKey] && Date.now() - klineCache[cacheKey].fetchedAt < KLINE_CACHE_TTL_MS) {
+    res.json(klineCache[cacheKey].data)
+    return
+  }
+
+  try {
+    const url = `https://api.binance.us/api/v3/klines?symbol=${encodeURIComponent(symbol.toUpperCase())}&interval=${encodeURIComponent(interval)}&limit=${encodeURIComponent(limit)}`
+
+    const controller = new AbortController()
+    const timeout = setTimeout(() => controller.abort(), 10_000)
+
+    const response = await fetch(url, { signal: controller.signal })
+    clearTimeout(timeout)
+
+    if (!response.ok) {
+      throw new Error(`Binance returned status ${response.status}`)
+    }
+
+    const data = await response.json()
+    klineCache[cacheKey] = { data, fetchedAt: Date.now() }
+
+    console.log(`[crypto] Serving ${(data as unknown[]).length} candles for ${symbol} (${interval})`)
+    res.json(data)
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    console.warn(`[crypto] Binance kline fetch failed (${message})`)
+
+    // Return cached data if available
+    if (klineCache[cacheKey]) {
+      res.json(klineCache[cacheKey].data)
+    } else {
+      res.status(502).json({ error: 'Binance API unavailable' })
+    }
+  }
+})
+
 app.listen(PORT, () => {
-  console.log(`[server] Flight proxy running on http://localhost:${PORT}`)
+  console.log(`[server] API proxy running on http://localhost:${PORT}`)
+  console.log(`[server] Endpoints: /api/flights, /api/stocks, /api/crypto/candles`)
   console.log(`[server] CORS enabled for localhost origins`)
 })

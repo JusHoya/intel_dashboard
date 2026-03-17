@@ -5,6 +5,7 @@ import 'react-mosaic-component/react-mosaic-component.css'
 import type { PanelId } from '../../types'
 import { PlaceholderPanel } from '../Panels/PlaceholderPanel'
 import { InfoPanel } from '../Panels/InfoPanel'
+import { FinancialPanel } from '../Financial'
 import { GlobeViewer, CountryLayer, CityMarkers, FlightLayer } from '../Globe'
 
 export const PANEL_TITLES: Record<PanelId, string> = {
@@ -47,6 +48,8 @@ function renderTile(id: PanelId, path: number[]) {
             <FlightLayer />
           </GlobeViewer>
         </div>
+      ) : id === 'financial' ? (
+        <FinancialPanel />
       ) : id === 'signals' ? (
         <InfoPanel />
       ) : (

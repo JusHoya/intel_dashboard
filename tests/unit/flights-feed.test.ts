@@ -1,6 +1,5 @@
-import { fetchFlights, interpolateFlights, type FlightSnapshot } from '../../src/feeds/flights'
+import { fetchFlights, lerp, lerpLongitude } from '../../src/feeds/flights'
 import { isMilitaryCallsign } from '../../src/utils/planeIcon'
-import type { FlightState } from '../../src/types/flights'
 
 afterEach(() => {
   vi.restoreAllMocks()
@@ -38,6 +37,22 @@ describe('fetchFlights', () => {
     expect(result).toHaveLength(1)
     expect(result[0].icao24).toBe('abc123')
     expect(result[0].callsign).toBe('UAL123')
+  })
+
+  it('passes bounding box params to API URL', async () => {
+    const mockFetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ flights: [], timestamp: Date.now() }),
+    })
+    vi.stubGlobal('fetch', mockFetch)
+
+    await fetchFlights({ lamin: 40, lomin: -80, lamax: 50, lomax: -70 })
+
+    const calledUrl = mockFetch.mock.calls[0][0] as string
+    expect(calledUrl).toContain('lamin=40.00')
+    expect(calledUrl).toContain('lomin=-80.00')
+    expect(calledUrl).toContain('lamax=50.00')
+    expect(calledUrl).toContain('lomax=-70.00')
   })
 
   it('handles network errors gracefully and returns empty array', async () => {
@@ -97,111 +112,47 @@ describe('isMilitaryCallsign', () => {
   })
 })
 
-// ── Interpolation ──────────────────────────────────────────────────────
+// ── lerp / lerpLongitude ──────────────────────────────────────────────
 
-function makeFlight(overrides: Partial<FlightState> = {}): FlightState {
-  return {
-    icao24: 'test01',
-    callsign: 'TST001',
-    origin_country: 'Testland',
-    longitude: 0,
-    latitude: 0,
-    baro_altitude: 10000,
-    velocity: 250,
-    true_track: 90,
-    on_ground: false,
-    last_contact: 1700000000,
-    ...overrides,
-  }
-}
-
-describe('interpolateFlights', () => {
-  it('returns raw positions when only one snapshot is available', () => {
-    const snap: FlightSnapshot = {
-      flights: [makeFlight({ latitude: 50, longitude: 10 })],
-      timestamp: 1000,
-      receivedAt: 1000000,
-    }
-
-    const result = interpolateFlights(null, snap, 1000000)
-    expect(result).toHaveLength(1)
-    expect(result[0].interpLatitude).toBe(50)
-    expect(result[0].interpLongitude).toBe(10)
+describe('lerp', () => {
+  it('returns a at t=0', () => {
+    expect(lerp(10, 20, 0)).toBe(10)
   })
 
-  it('interpolates midpoint between two snapshots at t=0.5', () => {
-    const prev: FlightSnapshot = {
-      flights: [makeFlight({ icao24: 'a1', latitude: 40, longitude: 10 })],
-      timestamp: 1000,
-      receivedAt: 10000,
-    }
-    const current: FlightSnapshot = {
-      flights: [makeFlight({ icao24: 'a1', latitude: 50, longitude: 20 })],
-      timestamp: 1015,
-      receivedAt: 25000,
-    }
-
-    // displayTime at midpoint between receivedAt values
-    const displayTime = 17500 // exactly halfway
-    const result = interpolateFlights(prev, current, displayTime)
-
-    expect(result).toHaveLength(1)
-    expect(result[0].interpLatitude).toBeCloseTo(45, 1)
-    expect(result[0].interpLongitude).toBeCloseTo(15, 1)
+  it('returns b at t=1', () => {
+    expect(lerp(10, 20, 1)).toBe(20)
   })
 
-  it('clamps t to [0, 1] when display time is out of range', () => {
-    const prev: FlightSnapshot = {
-      flights: [makeFlight({ icao24: 'a1', latitude: 40, longitude: 10 })],
-      timestamp: 1000,
-      receivedAt: 10000,
-    }
-    const current: FlightSnapshot = {
-      flights: [makeFlight({ icao24: 'a1', latitude: 50, longitude: 20 })],
-      timestamp: 1015,
-      receivedAt: 25000,
-    }
-
-    // Display time way past current → clamped to t=1
-    const result = interpolateFlights(prev, current, 999999)
-    expect(result[0].interpLatitude).toBeCloseTo(50, 1)
-    expect(result[0].interpLongitude).toBeCloseTo(20, 1)
-
-    // Display time before prev → clamped to t=0
-    const result2 = interpolateFlights(prev, current, 0)
-    expect(result2[0].interpLatitude).toBeCloseTo(40, 1)
-    expect(result2[0].interpLongitude).toBeCloseTo(10, 1)
+  it('returns midpoint at t=0.5', () => {
+    expect(lerp(10, 20, 0.5)).toBe(15)
   })
 
-  it('handles antimeridian longitude wrap-around', () => {
-    const prev: FlightSnapshot = {
-      flights: [makeFlight({ icao24: 'a1', latitude: 40, longitude: 170 })],
-      timestamp: 1000,
-      receivedAt: 10000,
-    }
-    const current: FlightSnapshot = {
-      flights: [makeFlight({ icao24: 'a1', latitude: 40, longitude: -170 })],
-      timestamp: 1015,
-      receivedAt: 25000,
-    }
+  it('handles negative values', () => {
+    expect(lerp(-10, 10, 0.5)).toBe(0)
+  })
+})
 
-    // Midpoint should cross the antimeridian (170 → 180/-180 → -170)
-    const result = interpolateFlights(prev, current, 17500)
-    expect(result[0].interpLongitude).toBeCloseTo(180, 0)
+describe('lerpLongitude', () => {
+  it('interpolates simple longitudes', () => {
+    expect(lerpLongitude(10, 20, 0.5)).toBeCloseTo(15, 5)
   })
 
-  it('filters out flights with null coordinates', () => {
-    const snap: FlightSnapshot = {
-      flights: [
-        makeFlight({ icao24: 'a1', latitude: 50, longitude: 10 }),
-        makeFlight({ icao24: 'a2', latitude: null, longitude: null }),
-      ],
-      timestamp: 1000,
-      receivedAt: 1000000,
-    }
+  it('handles antimeridian wrap (170 → -170 should go through 180)', () => {
+    const result = lerpLongitude(170, -170, 0.5)
+    // Shortest arc: 170 → 180 → -170, midpoint ≈ 180 or -180
+    expect(Math.abs(result)).toBeCloseTo(180, 0)
+  })
 
-    const result = interpolateFlights(null, snap, 1000000)
-    expect(result).toHaveLength(1)
-    expect(result[0].icao24).toBe('a1')
+  it('handles antimeridian wrap in reverse direction', () => {
+    const result = lerpLongitude(-170, 170, 0.5)
+    expect(Math.abs(result)).toBeCloseTo(180, 0)
+  })
+
+  it('returns a at t=0', () => {
+    expect(lerpLongitude(10, 20, 0)).toBe(10)
+  })
+
+  it('returns b at t=1', () => {
+    expect(lerpLongitude(10, 20, 1)).toBe(20)
   })
 })

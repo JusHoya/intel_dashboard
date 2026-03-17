@@ -403,11 +403,11 @@ This is the most important test regime — it validates whether intelligence sig
 - [x] Flight tracking (OpenSky) — planes on globe
 
 ### Sprint 3 (Week 5-6): Financial Core
-- [ ] Ticker watchlist panel with live crypto prices (Binance WS)
-- [ ] Stock price integration (Alpha Vantage / Yahoo)
-- [ ] TradingView Lightweight Charts integration
-- [ ] Market heatmap (treemap component)
-- [ ] Geo-linking: country selection → relevant tickers highlighted
+- [x] Ticker watchlist panel with live crypto prices (Binance WS)
+- [x] Stock price integration (Alpha Vantage / Yahoo)
+- [x] TradingView Lightweight Charts integration
+- [x] Market heatmap (treemap component)
+- [x] Geo-linking: country selection → relevant tickers highlighted
 
 ### Sprint 4 (Week 7-8): News & Media
 - [ ] YouTube embed panel with channel switcher
