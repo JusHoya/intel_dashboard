@@ -43,6 +43,7 @@ function GlobeViewer({ children }: GlobeViewerProps) {
   const handleViewerReady = useCallback(
     (viewer: CesiumViewer) => {
       viewerRef.current = viewer
+      ;(window as unknown as Record<string, unknown>).__cesiumViewer = viewer
       viewer.scene.globe.baseColor = Color.fromCssColorString('#0a0a0f')
       viewer.scene.globe.enableLighting = true
       viewer.scene.backgroundColor = Color.fromCssColorString('#000005')

@@ -10,7 +10,7 @@
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest",
-    "server": "tsx server/index.ts",
+    "server": "tsx --env-file=.env server/index.ts",
     "dev:all": "npm run server & npm run dev"
   },
   "dependencies": {

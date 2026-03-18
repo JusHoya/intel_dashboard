@@ -30,7 +30,10 @@
       "Bash(python3 -c \"import json,sys; d=json.load\\(sys.stdin\\); print\\(json.dumps\\(d.get\\(''''chart'''',{}\\).get\\(''''error'''',''''no error''''\\)\\)\\)\")",
       "Bash(find /c/Users/hoyer/WorkSpace/Projects/intel_dashboard/server -type f \\\\\\(-name *.ts -o -name *.tsx -o -name *.js \\\\\\))",
       "Bash(ls:*)",
-      "mcp__playwright__browser_click"
+      "mcp__playwright__browser_click",
+      "Bash(netstat -aon)",
+      "mcp__playwright__browser_network_requests",
+      "mcp__playwright__browser_run_code"
     ]
   },
   "enableAllProjectMcpServers": true,
