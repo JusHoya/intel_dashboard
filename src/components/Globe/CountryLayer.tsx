@@ -7,6 +7,7 @@ import {
   ConstantProperty,
   GeoJsonDataSource as CesiumGeoJsonDataSource,
 } from 'cesium'
+import { useGlobeStore } from '../../store/globe'
 
 const COUNTRIES_URL = '/data/countries.geo.json'
 
@@ -14,6 +15,8 @@ const FILL_COLOR = Color.fromCssColorString('#00ff41').withAlpha(0.08)
 const STROKE_COLOR = Color.fromCssColorString('#00ff41').withAlpha(0.6)
 
 export function CountryLayer() {
+  const viewMode = useGlobeStore((s) => s.viewMode)
+
   const handleLoad = useCallback((dataSource: CesiumGeoJsonDataSource) => {
     const entities = dataSource.entities.values
 
@@ -41,6 +44,9 @@ export function CountryLayer() {
       }
     }
   }, [])
+
+  // Hide country borders in photorealistic mode to prevent z-fighting
+  if (viewMode === 'photorealistic') return null
 
   return (
     <GeoJsonDataSource

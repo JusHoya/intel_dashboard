@@ -16,6 +16,7 @@ import {
   type Cartesian2,
 } from 'cesium'
 import { useGlobeStore } from '../../store/globe'
+import { GlobeToolbar } from './GlobeToolbar'
 
 Ion.defaultAccessToken = ''
 
@@ -36,6 +37,8 @@ function GlobeViewer({ children }: GlobeViewerProps) {
   const setGlobeReady = useGlobeStore((s) => s.setGlobeReady)
   const selectEntity = useGlobeStore((s) => s.selectEntity)
   const clearSelection = useGlobeStore((s) => s.clearSelection)
+  const setHoveredFlight = useGlobeStore((s) => s.setHoveredFlight)
+  const viewMode = useGlobeStore((s) => s.viewMode)
 
   const handleViewerReady = useCallback(
     (viewer: CesiumViewer) => {
@@ -131,6 +134,53 @@ function GlobeViewer({ children }: GlobeViewerProps) {
     [selectEntity, clearSelection],
   )
 
+  // Handle mouse move for flight hover — throttled to 100ms
+  const lastMoveRef = useRef(0)
+  const handleMouseMove = useCallback(
+    (event: { endPosition: Cartesian2 }) => {
+      const now = Date.now()
+      if (now - lastMoveRef.current < 100) return
+      lastMoveRef.current = now
+
+      const viewer = viewerRef.current
+      if (!viewer) return
+
+      const picked = viewer.scene.pick(event.endPosition)
+      if (defined(picked) && picked.id) {
+        const entity = picked.id
+        const entityType = entity.properties?.entityType?.getValue(viewer.clock.currentTime)
+        if (entityType === 'flight') {
+          const callsign = entity.properties?.callsign?.getValue(viewer.clock.currentTime) ?? null
+          setHoveredFlight(entity.id ?? null, callsign)
+          return
+        }
+      }
+      setHoveredFlight(null, null)
+    },
+    [setHoveredFlight],
+  )
+
+  // Toggle scene properties based on viewMode
+  useEffect(() => {
+    const viewer = viewerRef.current
+    if (!viewer) return
+
+    if (viewMode === 'photorealistic') {
+      viewer.scene.globe.show = false
+      if (viewer.scene.skyAtmosphere) viewer.scene.skyAtmosphere.show = true
+      viewer.scene.globe.enableLighting = false
+    } else {
+      // Restore terminal mode
+      viewer.scene.globe.show = true
+      viewer.scene.globe.baseColor = Color.fromCssColorString('#0a0a0f')
+      viewer.scene.globe.enableLighting = true
+      if (viewer.scene.skyAtmosphere) viewer.scene.skyAtmosphere.show = false
+      if (viewer.scene.sun) viewer.scene.sun.show = false
+      if (viewer.scene.moon) viewer.scene.moon.show = false
+      if (viewer.scene.skyBox) viewer.scene.skyBox.show = false
+    }
+  }, [viewMode])
+
   useEffect(() => {
     return () => {
       viewerRef.current = null
@@ -139,7 +189,8 @@ function GlobeViewer({ children }: GlobeViewerProps) {
   }, [setGlobeReady])
 
   return (
-    <div className="globe-container" style={{ width: '100%', height: '100%' }}>
+    <div className="globe-container" style={{ width: '100%', height: '100%', position: 'relative' }}>
+      <GlobeToolbar />
       <ResiumViewer
         ref={refCallback}
         full={false}
@@ -164,6 +215,10 @@ function GlobeViewer({ children }: GlobeViewerProps) {
           <ScreenSpaceEvent
             action={handleClick}
             type={ScreenSpaceEventType.LEFT_CLICK}
+          />
+          <ScreenSpaceEvent
+            action={handleMouseMove}
+            type={ScreenSpaceEventType.MOUSE_MOVE}
           />
         </ScreenSpaceEventHandler>
         {children}

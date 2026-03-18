@@ -25,4 +25,4 @@ A browser-based intelligence + financial dashboard. Bloomberg Terminal meets int
 - All API keys proxied through backend (never exposed to client)
 
 ## Current Phase
-Sprint 3 complete: Financial core with live crypto, stock feeds, charts, heatmap, and geo-linking
+Sprint 3 complete: Financial core with live crypto, stock feeds, charts, heatmap, geo-linking, plus visual upgrades — white civilian aircraft, flight trajectory arcs, Google 3D Tiles toggle

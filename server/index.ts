@@ -137,6 +137,74 @@ async function fetchFromOpenSky(bbox?: BoundingBox): Promise<FlightCache> {
   return cache
 }
 
+/* ── Flight route proxy ────────────────────────────────────────────────
+   Proxies OpenSky Routes API to resolve callsign → departure/arrival
+   ICAO codes for trajectory visualization. Cached per callsign for 5 min. */
+
+const routeCache: Record<string, { data: { departure: string | null; arrival: string | null }; fetchedAt: number }> = {}
+const ROUTE_CACHE_TTL_MS = 300_000 // 5 minutes
+
+app.get('/api/flight-route', async (req, res) => {
+  const callsign = typeof req.query.callsign === 'string' ? req.query.callsign.trim() : ''
+
+  if (!callsign) {
+    res.status(400).json({ error: 'callsign query parameter required' })
+    return
+  }
+
+  // Serve from cache if fresh
+  if (routeCache[callsign] && Date.now() - routeCache[callsign].fetchedAt < ROUTE_CACHE_TTL_MS) {
+    res.json(routeCache[callsign].data)
+    return
+  }
+
+  try {
+    const controller = new AbortController()
+    const timeout = setTimeout(() => controller.abort(), 8_000)
+
+    const url = `https://opensky-network.org/api/routes?callsign=${encodeURIComponent(callsign)}`
+    const response = await fetch(url, { signal: controller.signal })
+    clearTimeout(timeout)
+
+    if (!response.ok) {
+      throw new Error(`OpenSky Routes returned status ${response.status}`)
+    }
+
+    const data = (await response.json()) as { route: string[] } | null
+
+    const departure = data?.route?.[0] ?? null
+    const arrival = data?.route?.[data.route.length - 1] ?? null
+    const result = { departure, arrival }
+
+    routeCache[callsign] = { data: result, fetchedAt: Date.now() }
+    console.log(`[routes] ${callsign}: ${departure} → ${arrival}`)
+    res.json(result)
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    console.warn(`[routes] Failed for ${callsign}: ${message}`)
+
+    // Return cached data if available
+    if (routeCache[callsign]) {
+      res.json(routeCache[callsign].data)
+    } else {
+      res.json({ departure: null, arrival: null })
+    }
+  }
+})
+
+/* ── Google Maps API key endpoint ─────────────────────────────────────
+   Serves the Google Maps API key from environment variable so it
+   never appears in client-side source code. */
+
+app.get('/api/google-tiles/key', (_req, res) => {
+  const key = process.env.GOOGLE_MAPS_API_KEY
+  if (key) {
+    res.json({ key })
+  } else {
+    res.status(404).json({ error: 'GOOGLE_MAPS_API_KEY not configured' })
+  }
+})
+
 app.get('/api/flights', async (req, res) => {
   // Parse optional bounding box parameters
   const lamin = parseFloat(req.query.lamin as string)
@@ -375,6 +443,6 @@ app.get('/api/crypto/candles', async (req, res) => {
 
 app.listen(PORT, () => {
   console.log(`[server] API proxy running on http://localhost:${PORT}`)
-  console.log(`[server] Endpoints: /api/flights, /api/stocks, /api/crypto/candles`)
+  console.log(`[server] Endpoints: /api/flights, /api/flight-route, /api/stocks, /api/crypto/candles, /api/google-tiles/key`)
   console.log(`[server] CORS enabled for localhost origins`)
 })

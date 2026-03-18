@@ -15,3 +15,15 @@ export interface FlightsResponse {
   flights: FlightState[]
   timestamp: number
 }
+
+export interface AirportPosition {
+  lat: number
+  lon: number
+  name: string
+}
+
+export interface FlightRoute {
+  callsign: string
+  departureIcao: string | null
+  arrivalIcao: string | null
+}

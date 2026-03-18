@@ -23,7 +23,7 @@ const labelScaleByDistance = new NearFarScalar(1e5, 1.0, 1e7, 0.0)
 const billboardScaleByDistance = new NearFarScalar(1e5, 0.7, 2e7, 0.25)
 const labelPixelOffset = new Cartesian2(18, -4)
 
-const GREEN = Color.fromCssColorString('#00ff41')
+const WHITE = Color.fromCssColorString('#ffffff')
 const RED = Color.fromCssColorString('#ff0040')
 
 /** Camera height → max flights to render */
@@ -136,7 +136,7 @@ export function FlightLayer() {
 
         const military = isMilitaryCallsign(flight.callsign)
         const icon = military ? MILITARY_PLANE_ICON : CIVILIAN_PLANE_ICON
-        const labelColor = military ? RED : GREEN
+        const labelColor = military ? RED : WHITE
 
         // CesiumJS rotation is counter-clockwise from north in radians.
         // true_track is clockwise degrees from north → negate and convert.

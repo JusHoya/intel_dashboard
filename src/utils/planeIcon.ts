@@ -20,8 +20,8 @@ function svgToDataUri(svg: string): string {
   return `data:image/svg+xml;base64,${btoa(svg)}`
 }
 
-/** Green plane icon for civilian aircraft */
-export const CIVILIAN_PLANE_ICON = svgToDataUri(planeSvg('#00ff41'))
+/** White plane icon for civilian aircraft */
+export const CIVILIAN_PLANE_ICON = svgToDataUri(planeSvg('#ffffff'))
 
 /** Red plane icon for military aircraft */
 export const MILITARY_PLANE_ICON = svgToDataUri(planeSvg('#ff0040'))

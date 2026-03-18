@@ -6,7 +6,7 @@ import type { PanelId } from '../../types'
 import { PlaceholderPanel } from '../Panels/PlaceholderPanel'
 import { InfoPanel } from '../Panels/InfoPanel'
 import { FinancialPanel } from '../Financial'
-import { GlobeViewer, CountryLayer, CityMarkers, FlightLayer } from '../Globe'
+import { GlobeViewer, CountryLayer, CityMarkers, FlightLayer, TrajectoryLayer, Photorealistic3DLayer } from '../Globe'
 
 export const PANEL_TITLES: Record<PanelId, string> = {
   globe: 'GLOBE',
@@ -46,6 +46,8 @@ function renderTile(id: PanelId, path: number[]) {
             <CountryLayer />
             <CityMarkers />
             <FlightLayer />
+            <TrajectoryLayer />
+            <Photorealistic3DLayer />
           </GlobeViewer>
         </div>
       ) : id === 'financial' ? (

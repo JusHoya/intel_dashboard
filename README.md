@@ -13,7 +13,7 @@
 
 A browser-based intelligence dashboard fusing real-time geospatial, geopolitical, and financial data into a single terminal-grade interface. Bloomberg Terminal meets classified intelligence workstation.
 
-> **Status:** `PRE-ALPHA` | **Current Sprint:** 3 COMPLETE | **Last Updated:** 2026-03-16
+> **Status:** `PRE-ALPHA` | **Current Sprint:** 3 COMPLETE | **Last Updated:** 2026-03-17
 
 ---
 
@@ -185,8 +185,14 @@ Sprint 7 ░░░░░░░░░░░░░░░░░░░░░░░�
 | 3.3 | TradingView Lightweight Charts | `DONE` | Candlestick chart with real-time kline WS updates, terminal theme |
 | 3.4 | Market heatmap (treemap) | `DONE` | Grid heatmap, red/green intensity by 24h change % |
 | 3.5 | Geo-linking: country → relevant tickers | `DONE` | Country click highlights associated tickers in watchlist |
+| 3.6 | White civilian aircraft icons | `DONE` | White (#ffffff) for civilian, red stays for military |
+| 3.7 | Flight trajectory arcs on hover/select | `DONE` | Geodesic cyan arc from departure→arrival via OpenSky Routes API |
+| 3.8 | Airport data lookup (ICAO → coordinates) | `DONE` | Static ~600 major airports in `src/data/airports.ts` |
+| 3.9 | Google Photorealistic 3D Tiles toggle | `DONE` | Terminal ↔ Photorealistic mode switch, API key via backend |
+| 3.10 | Globe toolbar (view mode toggle) | `DONE` | Floating top-right button, green/amber terminal-styled |
+| 3.11 | Scene property switching per mode | `DONE` | Globe show/hide, atmosphere, lighting per mode |
 
-**Sprint 3 Deliverable:** Live financial data flowing. Click a country, see its tickers.
+**Sprint 3 Deliverable:** Live financial data flowing. Click a country, see its tickers. White aircraft, trajectory arcs on hover, toggleable Google 3D Tiles.
 
 ---
 
@@ -367,6 +373,16 @@ intel_dashboard/
 ---
 
 ## Changelog
+
+### 2026-03-17 — Sprint 3 Update: Visual Upgrades
+- **White civilian aircraft** — civilian flights now render as white icons/labels for better contrast against the green terminal UI; military stays red
+- **Flight trajectory arcs** — hover or click a flight to see a geodesic cyan arc from departure to destination airport, resolved via OpenSky Routes API with server-side caching
+- **Airport lookup** — static ICAO→coordinate map of ~250 major world airports for endpoint resolution
+- **Google Photorealistic 3D Tiles** — toggleable via toolbar button; globe surface hides, country borders hide (z-fighting prevention), atmosphere enables; API key served from backend env
+- **Globe toolbar** — floating top-right button toggles between TERMINAL and 3D PHOTO modes with green/amber terminal styling
+- **Scene switching** — globe.show, lighting, atmosphere, sky objects all toggle per view mode
+- **Mouse hover tracking** — throttled (100ms) MOUSE_MOVE handler identifies hovered flights for trajectory display
+- Server endpoints: `/api/flight-route` (OpenSky Routes proxy, 5-min cache), `/api/google-tiles/key` (env key endpoint)
 
 ### 2026-03-16 — Sprint 3 Complete
 - **Financial Panel** replaces placeholder: watchlist, chart, and heatmap view modes

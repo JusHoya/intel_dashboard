@@ -27,7 +27,10 @@
       "mcp__playwright__browser_wait_for",
       "Bash(python3 -c \"import json,sys; data=json.load\\(sys.stdin\\); usdt=[d[''''symbol''''] for d in data if d[''''symbol''''].endswith\\(''''USDT''''\\)]; print\\(''''\\\\n''''.join\\(sorted\\(usdt\\)\\)\\)\")",
       "Bash(python3 -c \"import json,sys; d=json.load\\(sys.stdin\\)[''''chart''''][''''result''''][0][''''meta'''']; print\\(json.dumps\\({k:d[k] for k in [''''symbol'''',''''regularMarketPrice'''',''''regularMarketDayHigh'''',''''regularMarketDayLow'''',''''regularMarketVolume'''',''''previousClose'''',''''chartPreviousClose''''] if k in d}, indent=2\\)\\)\")",
-      "Bash(python3 -c \"import json,sys; d=json.load\\(sys.stdin\\); print\\(json.dumps\\(d.get\\(''''chart'''',{}\\).get\\(''''error'''',''''no error''''\\)\\)\\)\")"
+      "Bash(python3 -c \"import json,sys; d=json.load\\(sys.stdin\\); print\\(json.dumps\\(d.get\\(''''chart'''',{}\\).get\\(''''error'''',''''no error''''\\)\\)\\)\")",
+      "Bash(find /c/Users/hoyer/WorkSpace/Projects/intel_dashboard/server -type f \\\\\\(-name *.ts -o -name *.tsx -o -name *.js \\\\\\))",
+      "Bash(ls:*)",
+      "mcp__playwright__browser_click"
     ]
   },
   "enableAllProjectMcpServers": true,
