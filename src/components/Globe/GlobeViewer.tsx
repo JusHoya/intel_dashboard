@@ -161,6 +161,28 @@ function GlobeViewer({ children }: GlobeViewerProps) {
     [setHoveredFlight],
   )
 
+  // React to flyToTarget changes from command bar
+  const flyToTarget = useGlobeStore((s) => s.flyToTarget)
+  const clearFlyToTarget = useGlobeStore((s) => s.clearFlyToTarget)
+
+  useEffect(() => {
+    if (!flyToTarget) return
+    const viewer = viewerRef.current
+    if (!viewer) return
+
+    viewer.camera.flyTo({
+      destination: Cartesian3.fromDegrees(
+        flyToTarget.longitude,
+        flyToTarget.latitude,
+        5_000_000,
+      ),
+      duration: 2.0,
+    })
+
+    // Clear the target so the same location can be re-triggered
+    clearFlyToTarget()
+  }, [flyToTarget, clearFlyToTarget])
+
   // Toggle scene properties based on viewMode
   useEffect(() => {
     const viewer = viewerRef.current

@@ -3,36 +3,17 @@ import type { MosaicNode } from 'react-mosaic-component'
 import 'react-mosaic-component/react-mosaic-component.css'
 
 import type { PanelId } from '../../types'
+import { useLayoutStore } from '../../store/layout'
 import { InfoPanel } from '../Panels/InfoPanel'
 import { FinancialPanel } from '../Financial'
 import { NewsPanel } from '../News'
-import { GlobeViewer, CountryLayer, CityMarkers, FlightLayer, TrajectoryLayer, Photorealistic3DLayer } from '../Globe'
+import { GlobeViewer, CountryLayer, CityMarkers, FlightLayer, TrajectoryLayer, Photorealistic3DLayer, SatelliteLayer } from '../Globe'
 
 export const PANEL_TITLES: Record<PanelId, string> = {
   globe: 'GLOBE',
   financial: 'FINANCIAL',
   news: 'INTEL FEED',
   signals: 'ENTITY INTEL',
-}
-
-const INITIAL_LAYOUT: MosaicNode<PanelId> = {
-  type: 'split',
-  direction: 'row',
-  splitPercentages: [65, 35],
-  children: [
-    {
-      type: 'split',
-      direction: 'column',
-      splitPercentages: [65, 35],
-      children: ['globe', 'news'],
-    },
-    {
-      type: 'split',
-      direction: 'column',
-      splitPercentages: [65, 35],
-      children: ['financial', 'signals'],
-    },
-  ],
 }
 
 function renderTile(id: PanelId, path: number[]) {
@@ -47,6 +28,7 @@ function renderTile(id: PanelId, path: number[]) {
             <CityMarkers />
             <FlightLayer />
             <TrajectoryLayer />
+            <SatelliteLayer />
             <Photorealistic3DLayer />
           </GlobeViewer>
         </div>
@@ -62,11 +44,19 @@ function renderTile(id: PanelId, path: number[]) {
 }
 
 export function TilingLayout() {
+  const layout = useLayoutStore((s) => s.layout)
+  const setLayout = useLayoutStore((s) => s.setLayout)
+
+  const handleChange = (newNode: MosaicNode<PanelId> | null) => {
+    setLayout(newNode)
+  }
+
   return (
     <div className="flex-1" style={{ minHeight: 0 }}>
       <Mosaic<PanelId>
         renderTile={renderTile}
-        initialValue={INITIAL_LAYOUT}
+        value={layout}
+        onChange={handleChange}
         className="mosaic-blueprint-theme bp5-dark"
       />
     </div>

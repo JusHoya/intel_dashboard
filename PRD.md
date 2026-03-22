@@ -417,9 +417,9 @@ This is the most important test regime — it validates whether intelligence sig
 - [x] Geo-linked news (select country → filter headlines via GDELT re-query)
 
 ### Sprint 5 (Week 9-10): Polish & Performance
-- [ ] Command bar (Ctrl+K) with command parsing
-- [ ] Layout presets (save/load arrangements)
-- [ ] Satellite tracking (CelesTrak TLE)
+- [x] Command bar (Ctrl+K) with command parsing + location lookup (address/coordinates via Nominatim geocoding)
+- [x] Layout presets (5 presets: Default, Full Globe, Trading Floor, Analyst Desk, News Room — persisted to localStorage)
+- [x] Satellite tracking (CelesTrak TLE — 100 satellites with SGP4 propagation via satellite.js)
 - [ ] Performance optimization (entity clustering, LOD)
 - [ ] Full test suite (unit, component, integration)
 - [ ] Visual regression baselines

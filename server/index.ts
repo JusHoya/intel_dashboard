@@ -193,6 +193,90 @@ app.get('/api/flight-route', async (req, res) => {
   }
 })
 
+/* ── Geocoding proxy (Nominatim / OpenStreetMap) ──────────────────────
+   Proxies geocoding requests to Nominatim so the frontend never calls
+   third-party APIs directly.  Results are cached for 1 hour.
+   Nominatim usage policy requires a meaningful User-Agent header. */
+
+interface GeocodeCache {
+  lat: number
+  lon: number
+  displayName: string
+  fetchedAt: number
+}
+
+const geocodeCache: Record<string, GeocodeCache> = {}
+const GEOCODE_CACHE_TTL_MS = 3_600_000 // 1 hour
+
+app.get('/api/geocode', async (req, res) => {
+  const q = typeof req.query.q === 'string' ? req.query.q.trim() : ''
+
+  if (!q) {
+    res.status(400).json({ error: 'q query parameter required' })
+    return
+  }
+
+  const cacheKey = q.toLowerCase()
+
+  // Serve from cache if fresh
+  if (geocodeCache[cacheKey] && Date.now() - geocodeCache[cacheKey].fetchedAt < GEOCODE_CACHE_TTL_MS) {
+    const cached = geocodeCache[cacheKey]
+    console.log(`[geocode] Cache hit for "${q}": ${cached.displayName}`)
+    res.json({ lat: cached.lat, lon: cached.lon, displayName: cached.displayName })
+    return
+  }
+
+  try {
+    const controller = new AbortController()
+    const timeout = setTimeout(() => controller.abort(), 8_000)
+
+    const url = `https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(q)}`
+    const response = await fetch(url, {
+      signal: controller.signal,
+      headers: {
+        'User-Agent': 'SIGINT-Dashboard/1.0 (intel-dashboard geocoding proxy)',
+      },
+    })
+    clearTimeout(timeout)
+
+    if (!response.ok) {
+      throw new Error(`Nominatim returned status ${response.status}`)
+    }
+
+    const data = (await response.json()) as Array<{
+      lat: string
+      lon: string
+      display_name: string
+    }>
+
+    if (!data || data.length === 0) {
+      res.status(404).json({ error: `No results for "${q}"` })
+      return
+    }
+
+    const result = {
+      lat: parseFloat(data[0].lat),
+      lon: parseFloat(data[0].lon),
+      displayName: data[0].display_name,
+    }
+
+    geocodeCache[cacheKey] = { ...result, fetchedAt: Date.now() }
+    console.log(`[geocode] Resolved "${q}" → ${result.displayName} (${result.lat}, ${result.lon})`)
+    res.json(result)
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    console.warn(`[geocode] Failed for "${q}": ${message}`)
+
+    // Return cached data if available (even stale)
+    if (geocodeCache[cacheKey]) {
+      const cached = geocodeCache[cacheKey]
+      res.json({ lat: cached.lat, lon: cached.lon, displayName: cached.displayName })
+    } else {
+      res.status(502).json({ error: 'Geocoding service unavailable' })
+    }
+  }
+})
+
 /* ── Google Maps API key endpoint ─────────────────────────────────────
    Serves the Google Maps API key from environment variable so it
    never appears in client-side source code. */
@@ -574,8 +658,130 @@ app.get('/api/news', async (req, res) => {
   }
 })
 
+/* ── Satellite TLE proxy ──────────────────────────────────────────────
+   Fetches TLE data from CelesTrak for satellite orbit propagation.
+   TLE data is cached for 4 hours since orbits change slowly. */
+
+interface TLEEntry {
+  name: string
+  line1: string
+  line2: string
+}
+
+interface SatelliteCache {
+  tles: TLEEntry[]
+  fetchedAt: number
+}
+
+const SAT_CACHE_TTL_MS = 4 * 60 * 60 * 1000 // 4 hours
+let satelliteCache: SatelliteCache | null = null
+
+/** CelesTrak groups to fetch — curated set for reasonable satellite count */
+const CELESTRAK_GROUPS: { group: string; category: string }[] = [
+  { group: 'stations', category: 'space-stations' },
+  { group: 'gps-ops', category: 'gps-ops' },
+  { group: 'weather', category: 'weather' },
+  { group: 'science', category: 'science' },
+  { group: 'resource', category: 'resource' },
+]
+
+/** Parse raw CelesTrak 3-line TLE text into structured TLE objects */
+function parseTLEText(text: string, category: string): TLEEntry[] {
+  const lines = text.trim().split('\n').map((l) => l.trim()).filter(Boolean)
+  const entries: TLEEntry[] = []
+
+  for (let i = 0; i + 2 < lines.length; i += 3) {
+    const name = lines[i]
+    const line1 = lines[i + 1]
+    const line2 = lines[i + 2]
+
+    // Basic validation: line1 starts with '1 ', line2 starts with '2 '
+    if (line1.startsWith('1 ') && line2.startsWith('2 ')) {
+      entries.push({
+        name: `${name}|${category}`,
+        line1,
+        line2,
+      })
+    }
+  }
+
+  return entries
+}
+
+/** Fetch TLE data from CelesTrak for all configured groups */
+async function fetchSatelliteTLEs(): Promise<TLEEntry[]> {
+  const allEntries: TLEEntry[] = []
+
+  for (const { group, category } of CELESTRAK_GROUPS) {
+    try {
+      const url = `https://celestrak.org/NORAD/elements/gp.php?GROUP=${group}&FORMAT=tle`
+      console.log(`[satellites] Fetching TLEs for group: ${group}`)
+
+      const controller = new AbortController()
+      const timeout = setTimeout(() => controller.abort(), 15_000)
+
+      const response = await fetch(url, { signal: controller.signal })
+      clearTimeout(timeout)
+
+      if (!response.ok) {
+        console.warn(`[satellites] CelesTrak returned ${response.status} for group ${group}`)
+        continue
+      }
+
+      const text = await response.text()
+      const entries = parseTLEText(text, category)
+      allEntries.push(...entries)
+
+      console.log(`[satellites] Parsed ${entries.length} TLEs for group: ${group}`)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      console.warn(`[satellites] Failed to fetch group ${group}: ${message}`)
+    }
+  }
+
+  // Cap at 100 satellites for performance — prioritize space stations, then GPS, etc.
+  if (allEntries.length > 100) {
+    console.log(`[satellites] Capping from ${allEntries.length} to 100 satellites`)
+    return allEntries.slice(0, 100)
+  }
+
+  return allEntries
+}
+
+app.get('/api/satellites', async (_req, res) => {
+  // Serve from cache if still fresh
+  if (satelliteCache && Date.now() - satelliteCache.fetchedAt < SAT_CACHE_TTL_MS) {
+    const ageHrs = ((Date.now() - satelliteCache.fetchedAt) / 3_600_000).toFixed(1)
+    console.log(`[satellites] Serving ${satelliteCache.tles.length} TLEs from cache (age: ${ageHrs}h)`)
+    res.json({ tles: satelliteCache.tles, fetchedAt: satelliteCache.fetchedAt })
+    return
+  }
+
+  try {
+    const tles = await fetchSatelliteTLEs()
+
+    if (tles.length > 0) {
+      satelliteCache = { tles, fetchedAt: Date.now() }
+      console.log(`[satellites] Serving ${tles.length} fresh TLEs`)
+      res.json({ tles, fetchedAt: satelliteCache.fetchedAt })
+    } else {
+      throw new Error('No TLEs fetched from any group')
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    console.warn(`[satellites] CelesTrak fetch failed: ${message}`)
+
+    // Return stale cache if available
+    if (satelliteCache) {
+      res.json({ tles: satelliteCache.tles, fetchedAt: satelliteCache.fetchedAt })
+    } else {
+      res.status(502).json({ error: 'Satellite data unavailable' })
+    }
+  }
+})
+
 app.listen(PORT, () => {
   console.log(`[server] API proxy running on http://localhost:${PORT}`)
-  console.log(`[server] Endpoints: /api/flights, /api/flight-route, /api/stocks, /api/crypto/candles, /api/google-tiles/key, /api/news`)
+  console.log(`[server] Endpoints: /api/flights, /api/flight-route, /api/stocks, /api/crypto/candles, /api/google-tiles/key, /api/news, /api/geocode, /api/satellites`)
   console.log(`[server] CORS enabled for localhost origins`)
 })

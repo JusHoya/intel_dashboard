@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useAppStore } from '../../store/app'
+import { LayoutSelector } from '../Layout'
 import type { FeedStatus } from '../../types'
 
 function formatDuration(ms: number): string {
@@ -51,6 +52,13 @@ export function StatusBar() {
         <span className="glow tracking-wider" style={{ color: 'var(--color-primary)' }}>
           SIGINT DASHBOARD v0.1.0
         </span>
+
+        <span
+          className="mx-1 inline-block h-3 w-px"
+          style={{ backgroundColor: 'var(--color-border)' }}
+        />
+
+        <LayoutSelector />
       </div>
 
       {/* Center section — feed health indicators */}
