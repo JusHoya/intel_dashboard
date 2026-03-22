@@ -410,11 +410,11 @@ This is the most important test regime — it validates whether intelligence sig
 - [x] Geo-linking: country selection → relevant tickers highlighted
 
 ### Sprint 4 (Week 7-8): News & Media
-- [ ] YouTube embed panel with channel switcher
-- [ ] Live news channel presets (Bloomberg, CNBC, etc.)
-- [ ] RSS/API news feed panel (NewsAPI / GDELT headlines)
-- [ ] News filtering by country/topic
-- [ ] Geo-linked news (select country → filter headlines)
+- [x] YouTube embed panel with channel switcher
+- [x] Live news channel presets (Bloomberg, CNBC, Al Jazeera, France 24, DW, Sky News, ABC AU, NDTV, NHK, Arirang)
+- [x] RSS/API news feed panel (GDELT DOC 2.0 — free, no API key, English-language filter)
+- [x] News filtering by country/topic (geo-linked filter badge with clear button)
+- [x] Geo-linked news (select country → filter headlines via GDELT re-query)
 
 ### Sprint 5 (Week 9-10): Polish & Performance
 - [ ] Command bar (Ctrl+K) with command parsing

@@ -25,4 +25,4 @@ A browser-based intelligence + financial dashboard. Bloomberg Terminal meets int
 - All API keys proxied through backend (never exposed to client)
 
 ## Current Phase
-Sprint 3 complete: Financial core with live crypto, stock feeds, charts, heatmap, geo-linking, plus visual upgrades — white civilian aircraft, flight trajectory arcs, Google 3D Tiles toggle
+Sprint 4 complete: News & media layer — GDELT news feed with 50 headline articles, YouTube live embed with 11 channel presets (Bloomberg, CNBC, Al Jazeera, etc.), geo-linked news filtering (click country → news re-queries for that region), tone/sentiment indicators

@@ -1,5 +1,6 @@
 import express from 'express'
 import cors from 'cors'
+import https from 'https'
 import type { FlightState } from '../src/types/flights.js'
 
 const app = express()
@@ -441,8 +442,140 @@ app.get('/api/crypto/candles', async (req, res) => {
   }
 })
 
+/* ── GDELT news proxy ──────────────────────────────────────────────────
+   Proxies GDELT DOC 2.0 API for news headlines.  Free, no API key.
+   Cached per query string for 5 minutes. */
+
+interface GdeltArticle {
+  url: string
+  title: string
+  seendate: string
+  socialimage: string
+  domain: string
+  language: string
+  sourcecountry: string
+  tone: string // comma-separated tone values; first is overall tone
+}
+
+interface GdeltResponse {
+  articles?: GdeltArticle[]
+}
+
+interface NewsCache {
+  articles: {
+    id: string
+    title: string
+    url: string
+    source: string
+    sourceCountry: string
+    publishedAt: string
+    imageUrl: string | null
+    tone: number
+    language: string
+    domain: string
+  }[]
+  fetchedAt: number
+}
+
+const newsCacheMap: Record<string, NewsCache> = {}
+const NEWS_CACHE_TTL_MS = 300_000 // 5 minutes
+
+app.get('/api/news', async (req, res) => {
+  const country = typeof req.query.country === 'string' ? req.query.country.trim() : ''
+  const topic = typeof req.query.topic === 'string' ? req.query.topic.trim() : ''
+  const limit = Math.min(parseInt(req.query.limit as string) || 50, 100)
+
+  // Build GDELT query
+  let query = topic || ''
+  if (country) {
+    // If country is a 2-letter ISO code, use sourcecountry filter
+    if (country.length === 2) {
+      query += ` sourcecountry:${country.toUpperCase()}`
+    } else {
+      // Otherwise search for country name in articles
+      query += ` "${country}"`
+    }
+  }
+  query = query.trim()
+  if (!query) {
+    // Default: global top stories (GDELT requires parens around OR'd terms)
+    query = '(world OR conflict OR economy OR trade OR military OR sanctions)'
+  }
+  // Filter to English-language sources for readability
+  query += ' sourcelang:english'
+
+  const cacheKey = `${query}_${limit}`
+
+  // Serve from cache if fresh
+  if (newsCacheMap[cacheKey] && Date.now() - newsCacheMap[cacheKey].fetchedAt < NEWS_CACHE_TTL_MS) {
+    res.json({ articles: newsCacheMap[cacheKey].articles })
+    return
+  }
+
+  try {
+    const gdeltUrl = `https://api.gdeltproject.org/api/v2/doc/doc?query=${encodeURIComponent(query)}&mode=artlist&maxrecords=${limit}&format=json&sort=datedesc`
+    console.log(`[news] Fetching: ${gdeltUrl}`)
+
+    // Use Node https module — undici (global fetch) has SSL issues with GDELT
+    const text = await new Promise<string>((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error('GDELT request timeout')), 15_000)
+      https.get(gdeltUrl, { timeout: 12_000 }, (resp) => {
+        if (resp.statusCode && resp.statusCode >= 400) {
+          clearTimeout(timer)
+          reject(new Error(`GDELT returned status ${resp.statusCode}`))
+          resp.resume()
+          return
+        }
+        let body = ''
+        resp.on('data', (chunk: Buffer) => { body += chunk.toString() })
+        resp.on('end', () => { clearTimeout(timer); resolve(body) })
+        resp.on('error', (e: Error) => { clearTimeout(timer); reject(e) })
+      }).on('error', (e) => { clearTimeout(timer); reject(e) })
+    })
+
+    console.log(`[news] Got response (${text.length} bytes)`)
+
+    // GDELT sometimes returns 200 with a plain-text error message
+    if (!text.trimStart().startsWith('{')) {
+      throw new Error(`GDELT returned non-JSON: ${text.slice(0, 120)}`)
+    }
+
+    const data = JSON.parse(text) as GdeltResponse
+
+    const articles = (data.articles ?? []).map((a: GdeltArticle, i: number) => {
+      const toneStr = a.tone?.split(',')[0] ?? '0'
+      return {
+        id: `gdelt-${i}-${Date.now()}`,
+        title: a.title,
+        url: a.url,
+        source: a.domain?.replace(/^www\./, '') ?? 'Unknown',
+        sourceCountry: a.sourcecountry ?? '',
+        publishedAt: a.seendate ?? new Date().toISOString(),
+        imageUrl: a.socialimage || null,
+        tone: parseFloat(toneStr) || 0,
+        language: a.language ?? 'English',
+        domain: a.domain ?? '',
+      }
+    })
+
+    newsCacheMap[cacheKey] = { articles, fetchedAt: Date.now() }
+    console.log(`[news] Serving ${articles.length} articles for query: "${query}"`)
+    res.json({ articles })
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    console.warn(`[news] GDELT fetch failed (${message})`)
+
+    // Return cached data if available
+    if (newsCacheMap[cacheKey]) {
+      res.json({ articles: newsCacheMap[cacheKey].articles })
+    } else {
+      res.status(502).json({ error: 'News data unavailable' })
+    }
+  }
+})
+
 app.listen(PORT, () => {
   console.log(`[server] API proxy running on http://localhost:${PORT}`)
-  console.log(`[server] Endpoints: /api/flights, /api/flight-route, /api/stocks, /api/crypto/candles, /api/google-tiles/key`)
+  console.log(`[server] Endpoints: /api/flights, /api/flight-route, /api/stocks, /api/crypto/candles, /api/google-tiles/key, /api/news`)
   console.log(`[server] CORS enabled for localhost origins`)
 })

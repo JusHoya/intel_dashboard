@@ -3,9 +3,9 @@ import type { MosaicNode } from 'react-mosaic-component'
 import 'react-mosaic-component/react-mosaic-component.css'
 
 import type { PanelId } from '../../types'
-import { PlaceholderPanel } from '../Panels/PlaceholderPanel'
 import { InfoPanel } from '../Panels/InfoPanel'
 import { FinancialPanel } from '../Financial'
+import { NewsPanel } from '../News'
 import { GlobeViewer, CountryLayer, CityMarkers, FlightLayer, TrajectoryLayer, Photorealistic3DLayer } from '../Globe'
 
 export const PANEL_TITLES: Record<PanelId, string> = {
@@ -54,9 +54,9 @@ function renderTile(id: PanelId, path: number[]) {
         <FinancialPanel />
       ) : id === 'signals' ? (
         <InfoPanel />
-      ) : (
-        <PlaceholderPanel title={title} id={id} />
-      )}
+      ) : id === 'news' ? (
+        <NewsPanel />
+      ) : null}
     </MosaicWindow>
   )
 }
