@@ -7,13 +7,21 @@ import { useLayoutStore } from '../../store/layout'
 import { InfoPanel } from '../Panels/InfoPanel'
 import { FinancialPanel } from '../Financial'
 import { NewsPanel } from '../News'
+import { SignalPanel } from '../Signals'
+import { useGlobeStore } from '../../store/globe'
 import { GlobeViewer, CountryLayer, CityMarkers, FlightLayer, TrajectoryLayer, Photorealistic3DLayer, SatelliteLayer } from '../Globe'
 
 export const PANEL_TITLES: Record<PanelId, string> = {
   globe: 'GLOBE',
   financial: 'FINANCIAL',
   news: 'INTEL FEED',
-  signals: 'ENTITY INTEL',
+  signals: 'SIGNALS',
+}
+
+/** Wrapper that shows InfoPanel when an entity is selected, SignalPanel otherwise */
+function SignalOrInfoPanel() {
+  const selectedEntity = useGlobeStore((s) => s.selectedEntity)
+  return selectedEntity ? <InfoPanel /> : <SignalPanel />
 }
 
 function renderTile(id: PanelId, path: number[]) {
@@ -35,7 +43,7 @@ function renderTile(id: PanelId, path: number[]) {
       ) : id === 'financial' ? (
         <FinancialPanel />
       ) : id === 'signals' ? (
-        <InfoPanel />
+        <SignalOrInfoPanel />
       ) : id === 'news' ? (
         <NewsPanel />
       ) : null}

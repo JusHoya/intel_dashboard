@@ -3,9 +3,14 @@ import { TilingLayout } from './components/Layout'
 import { StatusBar, ScanlineOverlay, CommandBar } from './components/Terminal'
 import { useGeoLinking } from './feeds/geolink'
 import { useCommandStore } from './store/command'
+import { useSignalProcessor } from './feeds/signalProcessor'
+import { useNewsStore } from './store/news'
 
 function App() {
   useGeoLinking()
+
+  const newsItems = useNewsStore((s) => s.items)
+  useSignalProcessor(newsItems)
 
   const openCommandBar = useCommandStore((s) => s.open)
   const isCommandBarOpen = useCommandStore((s) => s.isOpen)

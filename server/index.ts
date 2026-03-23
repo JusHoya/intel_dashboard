@@ -2,11 +2,30 @@ import express from 'express'
 import cors from 'cors'
 import https from 'https'
 import type { FlightState } from '../src/types/flights.js'
+import {
+  type BacktestConfig,
+  type BacktestResult,
+  type GdeltArticle as BacktestGdeltArticle,
+  type SignalCategory as BacktestSignalCategory,
+  type PriceFetcher,
+  generateSignals as generateBacktestSignals,
+  runBacktest,
+  SIGNAL_CATEGORIES as BACKTEST_SIGNAL_CATEGORIES,
+} from './backtest.js'
+import {
+  type TradeRequest,
+  openPosition,
+  closePosition,
+  updateCurrentPrice,
+  getOpenPositions,
+  getPerformanceSummary,
+} from './paperTrading.js'
 
 const app = express()
 const PORT = 3001
 
 app.use(cors({ origin: /^http:\/\/localhost:\d+$/ }))
+app.use(express.json())
 
 /* ── Server-side flight data cache ─────────────────────────────────────
    OpenSky Network rate-limits anonymous users aggressively (~100 req/day
@@ -768,8 +787,468 @@ app.get('/api/satellites/tle', async (_req, res) => {
   }
 })
 
+/* ══════════════════════════════════════════════════════════════════════
+   SIGNAL ENGINE — Historical data pipelines & backtesting
+   ══════════════════════════════════════════════════════════════════════ */
+
+/* ── GDELT helper: fetch via Node https (avoids SSL/undici issues) ── */
+
+function gdeltFetch(url: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const req = https.get(url, { timeout: 15_000 }, (res) => {
+      // Follow redirects
+      if (res.statusCode && res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+        gdeltFetch(res.headers.location).then(resolve, reject)
+        return
+      }
+      if (res.statusCode && res.statusCode >= 400) {
+        reject(new Error(`GDELT returned status ${res.statusCode}`))
+        return
+      }
+      const chunks: Buffer[] = []
+      res.on('data', (chunk: Buffer) => chunks.push(chunk))
+      res.on('end', () => resolve(Buffer.concat(chunks).toString('utf-8')))
+      res.on('error', reject)
+    })
+    req.on('error', reject)
+    req.on('timeout', () => { req.destroy(); reject(new Error('GDELT request timed out')) })
+  })
+}
+
+/** Parse GDELT DOC 2.0 JSON response into BacktestGdeltArticle[] */
+function parseGdeltResponse(json: string): BacktestGdeltArticle[] {
+  try {
+    const data = JSON.parse(json) as { articles?: Array<{
+      url?: string
+      title?: string
+      seendate?: string
+      domain?: string
+      language?: string
+      tone?: number
+      socialimage?: string
+    }> }
+    if (!data.articles || !Array.isArray(data.articles)) return []
+    return data.articles
+      .filter((a) => a.url && a.title && a.seendate)
+      .map((a) => ({
+        url: a.url!,
+        title: a.title!,
+        seendate: a.seendate!.replace(/[^0-9T]/g, ''),
+        domain: a.domain ?? '',
+        language: a.language ?? 'English',
+        tone: typeof a.tone === 'number' ? a.tone : 0,
+        socialimage: a.socialimage,
+      }))
+  } catch {
+    return []
+  }
+}
+
+/* ── GDELT events cache ─────────────────────────────────────────────── */
+
+const gdeltEventsCache: Record<string, { data: BacktestGdeltArticle[]; fetchedAt: number }> = {}
+const GDELT_EVENTS_CACHE_TTL_MS = 3_600_000  // 1 hour
+const GDELT_RECENT_CACHE_TTL_MS = 600_000    // 10 minutes
+
+/* ── GET /api/signals/events — Historical GDELT events for backtesting */
+
+app.get('/api/signals/events', async (req, res) => {
+  const startDate = typeof req.query.startDate === 'string' ? req.query.startDate : ''
+  const endDate = typeof req.query.endDate === 'string' ? req.query.endDate : ''
+  const category = typeof req.query.category === 'string' ? req.query.category : ''
+
+  if (!startDate || !endDate) {
+    res.status(400).json({ error: 'startDate and endDate query parameters required (YYYY-MM-DD)' })
+    return
+  }
+
+  // Build GDELT query terms based on category
+  let queryTerms = '(war OR sanctions OR military OR trade OR economy OR crisis OR conflict OR missile OR nuclear)'
+  if (category && category in BACKTEST_SIGNAL_CATEGORIES) {
+    const cat = BACKTEST_SIGNAL_CATEGORIES[category as BacktestSignalCategory]
+    queryTerms = `(${cat.keywords.join(' OR ')})`
+  }
+
+  // Convert YYYY-MM-DD to YYYYMMDDHHMMSS
+  const startDt = startDate.replace(/-/g, '') + '000000'
+  const endDt = endDate.replace(/-/g, '') + '235959'
+  const cacheKey = `events_${startDt}_${endDt}_${category}`
+
+  // Serve from cache if fresh
+  if (gdeltEventsCache[cacheKey] && Date.now() - gdeltEventsCache[cacheKey].fetchedAt < GDELT_EVENTS_CACHE_TTL_MS) {
+    console.log(`[signals] Serving ${gdeltEventsCache[cacheKey].data.length} cached events`)
+    res.json({ articles: gdeltEventsCache[cacheKey].data, cached: true })
+    return
+  }
+
+  try {
+    const url = `https://api.gdeltproject.org/api/v2/doc/doc?query=${encodeURIComponent(queryTerms)}&sourcelang:english&mode=ArtList&maxrecords=250&format=json&startdatetime=${startDt}&enddatetime=${endDt}&sort=ToneDesc`
+
+    console.log(`[signals] Fetching GDELT events: ${startDate} → ${endDate} (${category || 'all'})`)
+    const body = await gdeltFetch(url)
+    const articles = parseGdeltResponse(body)
+
+    gdeltEventsCache[cacheKey] = { data: articles, fetchedAt: Date.now() }
+    console.log(`[signals] Fetched ${articles.length} GDELT events`)
+    res.json({ articles, cached: false })
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    console.warn(`[signals] GDELT events fetch failed: ${message}`)
+
+    // Return stale cache if available
+    if (gdeltEventsCache[cacheKey]) {
+      res.json({ articles: gdeltEventsCache[cacheKey].data, cached: true, stale: true })
+    } else {
+      res.status(502).json({ error: 'GDELT API unavailable', detail: message })
+    }
+  }
+})
+
+/* ── GET /api/signals/events/recent — Latest 24h high-impact events ── */
+
+let recentEventsCache: { data: BacktestGdeltArticle[]; fetchedAt: number } | null = null
+
+app.get('/api/signals/events/recent', async (_req, res) => {
+  // Serve from cache if fresh
+  if (recentEventsCache && Date.now() - recentEventsCache.fetchedAt < GDELT_RECENT_CACHE_TTL_MS) {
+    console.log(`[signals] Serving ${recentEventsCache.data.length} cached recent events`)
+    res.json({ articles: recentEventsCache.data, cached: true })
+    return
+  }
+
+  try {
+    const query = '(war OR sanctions OR military OR trade OR economy OR crisis OR conflict OR missile OR nuclear)'
+    const url = `https://api.gdeltproject.org/api/v2/doc/doc?query=${encodeURIComponent(query)}&sourcelang:english&mode=ArtList&maxrecords=100&format=json&timespan=1440&sort=ToneDesc`
+
+    console.log('[signals] Fetching recent GDELT events (last 24h)...')
+    const body = await gdeltFetch(url)
+    const articles = parseGdeltResponse(body)
+
+    // Sort by tone intensity (most impactful = most extreme tone)
+    articles.sort((a, b) => Math.abs(b.tone) - Math.abs(a.tone))
+
+    recentEventsCache = { data: articles, fetchedAt: Date.now() }
+    console.log(`[signals] Fetched ${articles.length} recent events`)
+    res.json({ articles, cached: false })
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    console.warn(`[signals] Recent events fetch failed: ${message}`)
+
+    if (recentEventsCache) {
+      res.json({ articles: recentEventsCache.data, cached: true, stale: true })
+    } else {
+      res.status(502).json({ error: 'GDELT API unavailable', detail: message })
+    }
+  }
+})
+
+/* ── Historical price data (Yahoo Finance) ──────────────────────────── */
+
+const priceCache: Record<string, { data: { dates: number[]; open: number[]; high: number[]; low: number[]; close: number[]; volume: number[] }; fetchedAt: number }> = {}
+const PRICE_CACHE_TTL_MS = 14_400_000 // 4 hours
+
+interface YahooChartResponse {
+  chart: {
+    result: Array<{
+      timestamp: number[]
+      indicators: {
+        quote: Array<{
+          open: (number | null)[]
+          high: (number | null)[]
+          low: (number | null)[]
+          close: (number | null)[]
+          volume: (number | null)[]
+        }>
+      }
+    }> | null
+    error: { code: string; description: string } | null
+  }
+}
+
+/** Fetch OHLCV historical data for a single symbol from Yahoo Finance */
+async function fetchHistoricalPrices(
+  symbol: string,
+  startDate: string,
+  endDate: string,
+  interval: string = '1d',
+): Promise<{ dates: number[]; open: number[]; high: number[]; low: number[]; close: number[]; volume: number[] } | null> {
+  const period1 = Math.floor(new Date(startDate + 'T00:00:00Z').getTime() / 1000)
+  const period2 = Math.floor(new Date(endDate + 'T23:59:59Z').getTime() / 1000)
+  const cacheKey = `price_${symbol}_${period1}_${period2}_${interval}`
+
+  // Serve from cache if fresh
+  if (priceCache[cacheKey] && Date.now() - priceCache[cacheKey].fetchedAt < PRICE_CACHE_TTL_MS) {
+    return priceCache[cacheKey].data
+  }
+
+  try {
+    const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?period1=${period1}&period2=${period2}&interval=${encodeURIComponent(interval)}`
+
+    const controller = new AbortController()
+    const timeout = setTimeout(() => controller.abort(), 12_000)
+
+    const response = await fetch(url, {
+      signal: controller.signal,
+      headers: { 'User-Agent': YAHOO_USER_AGENT },
+    })
+    clearTimeout(timeout)
+
+    if (!response.ok) {
+      throw new Error(`Yahoo Finance returned status ${response.status}`)
+    }
+
+    const data = (await response.json()) as YahooChartResponse
+
+    const result = data.chart?.result?.[0]
+    if (!result || !result.timestamp || !result.indicators?.quote?.[0]) {
+      throw new Error('No chart data returned')
+    }
+
+    const quote = result.indicators.quote[0]
+    const dates: number[] = []
+    const open: number[] = []
+    const high: number[] = []
+    const low: number[] = []
+    const close: number[] = []
+    const volume: number[] = []
+
+    for (let i = 0; i < result.timestamp.length; i++) {
+      // Skip entries with null values
+      if (
+        quote.open[i] != null &&
+        quote.high[i] != null &&
+        quote.low[i] != null &&
+        quote.close[i] != null
+      ) {
+        dates.push(result.timestamp[i])
+        open.push(quote.open[i]!)
+        high.push(quote.high[i]!)
+        low.push(quote.low[i]!)
+        close.push(quote.close[i]!)
+        volume.push(quote.volume[i] ?? 0)
+      }
+    }
+
+    const ohlcv = { dates, open, high, low, close, volume }
+    priceCache[cacheKey] = { data: ohlcv, fetchedAt: Date.now() }
+    return ohlcv
+  } catch {
+    return null
+  }
+}
+
+app.get('/api/signals/prices', async (req, res) => {
+  const symbolParam = typeof req.query.symbol === 'string' ? req.query.symbol : ''
+  const startDate = typeof req.query.startDate === 'string' ? req.query.startDate : ''
+  const endDate = typeof req.query.endDate === 'string' ? req.query.endDate : ''
+  const interval = typeof req.query.interval === 'string' ? req.query.interval : '1d'
+
+  if (!symbolParam || !startDate || !endDate) {
+    res.status(400).json({ error: 'symbol, startDate, and endDate query parameters required' })
+    return
+  }
+
+  const symbols = symbolParam.split(',').map((s) => s.trim()).filter(Boolean)
+
+  try {
+    const results: Record<string, { dates: number[]; open: number[]; high: number[]; low: number[]; close: number[]; volume: number[] }> = {}
+
+    const fetches = symbols.map(async (sym) => {
+      const data = await fetchHistoricalPrices(sym, startDate, endDate, interval)
+      if (data) results[sym] = data
+    })
+    await Promise.all(fetches)
+
+    console.log(`[signals] Serving historical prices for ${Object.keys(results).length}/${symbols.length} symbols`)
+    res.json({ prices: results })
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    console.warn(`[signals] Historical prices fetch failed: ${message}`)
+    res.status(502).json({ error: 'Price data unavailable', detail: message })
+  }
+})
+
+/* ── Backtesting endpoints ──────────────────────────────────────────── */
+
+const backtestCache: Record<string, { result: BacktestResult; fetchedAt: number }> = {}
+const BACKTEST_CACHE_TTL_MS = 3_600_000 // 1 hour
+let latestBacktestResult: { result: BacktestResult; runAt: string } | null = null
+
+/** Hash a backtest config for cache key */
+function hashConfig(config: BacktestConfig): string {
+  return `bt_${config.startDate}_${config.endDate}_${config.categories.sort().join(',')}_${config.holdPeriodDays}_${config.confidenceThreshold}`
+}
+
+app.post('/api/signals/backtest', async (req, res) => {
+  const body = req.body as Partial<BacktestConfig>
+
+  if (!body.startDate || !body.endDate) {
+    res.status(400).json({ error: 'startDate and endDate are required' })
+    return
+  }
+
+  const config: BacktestConfig = {
+    startDate: body.startDate,
+    endDate: body.endDate,
+    categories: body.categories ?? Object.keys(BACKTEST_SIGNAL_CATEGORIES) as BacktestSignalCategory[],
+    holdPeriodDays: body.holdPeriodDays ?? 5,
+    confidenceThreshold: body.confidenceThreshold ?? 0.5,
+  }
+
+  const configHash = hashConfig(config)
+
+  // Serve from cache if fresh
+  if (backtestCache[configHash] && Date.now() - backtestCache[configHash].fetchedAt < BACKTEST_CACHE_TTL_MS) {
+    console.log('[signals] Serving cached backtest result')
+    res.json(backtestCache[configHash].result)
+    return
+  }
+
+  try {
+    console.log(`[signals] Running backtest: ${config.startDate} → ${config.endDate} (${config.categories.length} categories)`)
+
+    // Step 1: Fetch historical GDELT events
+    const startDt = config.startDate.replace(/-/g, '') + '000000'
+    const endDt = config.endDate.replace(/-/g, '') + '235959'
+    const query = '(war OR sanctions OR military OR trade OR economy OR crisis OR conflict OR missile OR nuclear)'
+    const gdeltUrl = `https://api.gdeltproject.org/api/v2/doc/doc?query=${encodeURIComponent(query)}&sourcelang:english&mode=ArtList&maxrecords=250&format=json&startdatetime=${startDt}&enddatetime=${endDt}&sort=ToneDesc`
+
+    const gdeltBody = await gdeltFetch(gdeltUrl)
+    const articles = parseGdeltResponse(gdeltBody)
+    console.log(`[signals] Backtest: ${articles.length} GDELT events fetched`)
+
+    if (articles.length === 0) {
+      res.status(404).json({ error: 'No GDELT events found for the specified date range' })
+      return
+    }
+
+    // Step 2: Generate signals from events
+    const signals = generateBacktestSignals(articles, config.categories)
+    console.log(`[signals] Backtest: ${signals.length} signals generated`)
+
+    // Step 3: Run backtest with price fetcher
+    const priceFetcher: PriceFetcher = async (symbol, start, end) => {
+      return fetchHistoricalPrices(symbol, start, end, '1d')
+    }
+
+    const result = await runBacktest(config, signals, priceFetcher)
+    console.log(`[signals] Backtest complete: ${result.totalSignals} trades, ${(result.accuracy * 100).toFixed(1)}% accuracy`)
+
+    backtestCache[configHash] = { result, fetchedAt: Date.now() }
+    latestBacktestResult = { result, runAt: new Date().toISOString() }
+
+    res.json(result)
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    console.error(`[signals] Backtest failed: ${message}`)
+    res.status(500).json({ error: 'Backtest failed', detail: message })
+  }
+})
+
+app.get('/api/signals/backtest/status', (_req, res) => {
+  if (latestBacktestResult) {
+    res.json({
+      hasResults: true,
+      lastRun: latestBacktestResult.runAt,
+      results: latestBacktestResult.result,
+    })
+  } else {
+    res.json({
+      hasResults: false,
+      lastRun: null,
+      results: null,
+    })
+  }
+})
+
+/* ── Paper Trading endpoints ────────────────────────────────────────── */
+
+app.get('/api/paper/positions', (_req, res) => {
+  res.json({ positions: getOpenPositions() })
+})
+
+app.post('/api/paper/trade', (req, res) => {
+  const body = req.body as Partial<TradeRequest>
+
+  if (!body.signalId || !body.ticker || !body.direction || !body.entryPrice || !body.quantity) {
+    res.status(400).json({
+      error: 'signalId, ticker, direction, entryPrice, and quantity are required',
+    })
+    return
+  }
+
+  if (body.direction !== 'long' && body.direction !== 'short') {
+    res.status(400).json({ error: 'direction must be "long" or "short"' })
+    return
+  }
+
+  if (body.entryPrice <= 0 || body.quantity <= 0) {
+    res.status(400).json({ error: 'entryPrice and quantity must be positive' })
+    return
+  }
+
+  const position = openPosition({
+    signalId: body.signalId,
+    ticker: body.ticker,
+    direction: body.direction,
+    entryPrice: body.entryPrice,
+    quantity: body.quantity,
+  })
+
+  console.log(`[paper] Opened ${position.direction} position: ${position.quantity}x ${position.ticker} @ $${position.entryPrice}`)
+  res.status(201).json(position)
+})
+
+app.post('/api/paper/close', (req, res) => {
+  const body = req.body as { positionId?: string; exitPrice?: number }
+
+  if (!body.positionId || !body.exitPrice) {
+    res.status(400).json({ error: 'positionId and exitPrice are required' })
+    return
+  }
+
+  const closed = closePosition(body.positionId, body.exitPrice)
+  if (!closed) {
+    res.status(404).json({ error: 'Position not found or already closed' })
+    return
+  }
+
+  console.log(`[paper] Closed position ${closed.ticker}: P&L $${closed.realizedPnL?.toFixed(2)}`)
+  res.json(closed)
+})
+
+app.post('/api/paper/update-prices', (req, res) => {
+  const body = req.body as { prices?: Record<string, number> }
+
+  if (!body.prices || typeof body.prices !== 'object') {
+    res.status(400).json({ error: 'prices object required (e.g. { "SPY": 450.25 })' })
+    return
+  }
+
+  let totalUpdated = 0
+  for (const [ticker, price] of Object.entries(body.prices)) {
+    totalUpdated += updateCurrentPrice(ticker, price)
+  }
+
+  console.log(`[paper] Updated prices for ${totalUpdated} open positions`)
+  res.json({ updated: totalUpdated })
+})
+
+app.get('/api/paper/performance', (_req, res) => {
+  res.json(getPerformanceSummary())
+})
+
+/* ══════════════════════════════════════════════════════════════════════ */
+
 app.listen(PORT, () => {
   console.log(`[server] API proxy running on http://localhost:${PORT}`)
-  console.log(`[server] Endpoints: /api/flights, /api/flight-route, /api/stocks, /api/crypto/candles, /api/google-tiles/key, /api/news, /api/geocode, /api/satellites/tle`)
+  console.log(`[server] Endpoints:`)
+  console.log(`         /api/flights, /api/flight-route, /api/stocks, /api/crypto/candles`)
+  console.log(`         /api/google-tiles/key, /api/news, /api/geocode, /api/satellites/tle`)
+  console.log(`         /api/signals/events, /api/signals/events/recent`)
+  console.log(`         /api/signals/prices`)
+  console.log(`         /api/signals/backtest, /api/signals/backtest/status`)
+  console.log(`         /api/paper/positions, /api/paper/trade, /api/paper/close`)
+  console.log(`         /api/paper/update-prices, /api/paper/performance`)
   console.log(`[server] CORS enabled for localhost origins`)
 })
