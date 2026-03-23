@@ -1,5 +1,12 @@
 import { useMemo, useState, useEffect, useRef, useCallback } from 'react'
-import { Entity, PointGraphics, LabelGraphics, PolylineGraphics, useCesium } from 'resium'
+import {
+  Entity,
+  BillboardGraphics,
+  LabelGraphics,
+  PolylineGraphics,
+  EllipseGraphics,
+  useCesium,
+} from 'resium'
 import {
   Cartesian2,
   Cartesian3,
@@ -8,129 +15,156 @@ import {
   NearFarScalar,
   LabelStyle,
   VerticalOrigin,
+  HorizontalOrigin,
   PropertyBag,
-  ArcType,
+  Math as CesiumMath,
 } from 'cesium'
-import { useSatelliteFeed } from '../../feeds/satellites.ts'
-import { useGlobeStore } from '../../store/globe.ts'
-import type { SatellitePosition } from '../../types/satellites.ts'
+import { useSatellites, isISS } from '../../feeds/satellites'
+import { useGlobeStore } from '../../store/globe'
+import type { SatellitePosition, OrbitPoint } from '../../types/satellites'
 import {
-  twoline2satrec,
-  propagate,
-  gstime,
-  eciToGeodetic,
-  degreesLat,
-  degreesLong,
-} from 'satellite.js'
+  SATELLITE_ICON_CYAN,
+  SATELLITE_ICON_GOLD,
+  SATELLITE_ICON_STARLINK,
+} from '../../utils/satelliteIcon'
 
-const PURPLE = Color.fromCssColorString('#a78bfa')
-const PURPLE_DIM = Color.fromCssColorString('#a78bfa').withAlpha(0.4)
-const ORBIT_COLOR = Color.fromCssColorString('#a78bfa').withAlpha(0.3)
+// -- Constants ----------------------------------------------------------------
 
+const CYAN = Color.fromCssColorString('#00ffff')
+const GOLD = Color.fromCssColorString('#ffd700')
+const STARLINK_COLOR = Color.fromCssColorString('#0891b2')
+
+// Label styling
+const labelPixelOffset = new Cartesian2(14, -4)
 const labelScaleByDistance = new NearFarScalar(1e5, 1.0, 8e6, 0.0)
-const pointScaleByDistance = new NearFarScalar(1e5, 1.0, 2e7, 0.5)
-const labelPixelOffset = new Cartesian2(10, -4)
+const issLabelScaleByDistance = new NearFarScalar(1e5, 1.0, 2e7, 0.4)
 
-/** Camera height -> max satellites to render */
-function getMaxSatellites(cameraHeight: number): number {
-  if (cameraHeight > 20_000_000) return 30   // Full globe view
-  if (cameraHeight > 10_000_000) return 60   // Continental view
-  return 100                                  // Zoomed in
+// Billboard scaling
+const generalBillboardScale = new NearFarScalar(1e5, 0.6, 2e7, 0.3)
+const issBillboardScale = new NearFarScalar(1e5, 0.9, 2e7, 0.5)
+const starlinkBillboardScale = new NearFarScalar(1e5, 0.4, 1e7, 0.15)
+
+// Orbit polyline color
+const ORBIT_COLOR_CYAN = Color.fromCssColorString('#00ffff').withAlpha(0.4)
+const ORBIT_COLOR_GOLD = Color.fromCssColorString('#ffd700').withAlpha(0.5)
+const ORBIT_COLOR_STARLINK = Color.fromCssColorString('#0891b2').withAlpha(0.3)
+
+// Earth radius in km
+const EARTH_RADIUS_KM = 6371
+
+// FOV half-angle in radians (17 degrees)
+const FOV_HALF_ANGLE_RAD = CesiumMath.toRadians(17)
+
+// -- Helpers ------------------------------------------------------------------
+
+/** Camera height -> max satellites to render per category */
+function getMaxSatellites(cameraHeight: number): { stations: number; starlink: number } {
+  if (cameraHeight > 15_000_000) return { stations: 50, starlink: 0 }
+  if (cameraHeight > 8_000_000) return { stations: 50, starlink: 10 }
+  if (cameraHeight > 3_000_000) return { stations: 50, starlink: 30 }
+  return { stations: 50, starlink: 50 }
 }
 
-/** Build PropertyBag for satellite entity click handling */
-function makeSatelliteProperties(sat: SatellitePosition): PropertyBag {
-  const bag = new PropertyBag()
-  bag.addProperty('entityType', new ConstantProperty('satellite'))
-  bag.addProperty('altitude', new ConstantProperty(sat.altitude))
-  bag.addProperty('velocity', new ConstantProperty(sat.velocity))
-  bag.addProperty('category', new ConstantProperty(sat.category))
-  bag.addProperty('satelliteId', new ConstantProperty(sat.id))
-  return bag
+/** Check if satellite is in viewport (approximate) */
+function isInViewport(
+  sat: SatellitePosition,
+  bounds: { south: number; north: number; west: number; east: number },
+): boolean {
+  if (sat.latitude < bounds.south || sat.latitude > bounds.north) return false
+  if (bounds.west <= bounds.east) {
+    return sat.longitude >= bounds.west && sat.longitude <= bounds.east
+  }
+  return sat.longitude >= bounds.west || sat.longitude <= bounds.east
 }
 
-/** Compute an orbit path for a selected satellite using its TLE data */
-function useOrbitPath(satelliteId: string | null): Cartesian3[] | null {
-  const [orbitPoints, setOrbitPoints] = useState<Cartesian3[] | null>(null)
-  const cacheRef = useRef<{ id: string; points: Cartesian3[] } | null>(null)
+/**
+ * Calculate the ground footprint radius for a satellite's field of view.
+ * Uses: footprintRadius = Re * arccos( (Re / (Re + alt)) * cos(halfAngle) )
+ * This accounts for Earth curvature.
+ *
+ * @returns footprint radius in meters
+ */
+function calculateFootprintRadius(altitudeKm: number): number {
+  const Re = EARTH_RADIUS_KM
+  const h = altitudeKm
+  const cosHalf = Math.cos(FOV_HALF_ANGLE_RAD)
+  const ratio = (Re / (Re + h)) * cosHalf
 
-  useEffect(() => {
-    if (!satelliteId) {
-      setOrbitPoints(null)
-      return
-    }
+  // Clamp to valid arccos range
+  if (ratio >= 1) return 0
+  if (ratio <= -1) return Math.PI * Re * 1000
 
-    // Use cached orbit if same satellite
-    if (cacheRef.current && cacheRef.current.id === satelliteId) {
-      setOrbitPoints(cacheRef.current.points)
-      return
-    }
+  const angularRadius = Math.acos(ratio)
+  // Convert angular radius on Earth's surface to meters
+  return angularRadius * Re * 1000
+}
 
-    // Fetch TLE data to compute orbit
-    // We re-fetch from the server cache to get the raw TLE lines
-    void (async () => {
-      try {
-        const response = await fetch('http://localhost:3001/api/satellites')
-        if (!response.ok) return
+/**
+ * Build Cesium Cartesian3 positions for an orbit path, properly segmenting
+ * at the antimeridian to avoid "wrap-around" artifacts.
+ */
+function buildOrbitPositions(points: OrbitPoint[]): Cartesian3[][] {
+  if (points.length === 0) return []
 
-        const data = (await response.json()) as { tles: { name: string; line1: string; line2: string }[] }
+  const segments: Cartesian3[][] = []
+  let currentSegment: Cartesian3[] = []
 
-        // Find the TLE matching this satellite
-        const noradId = satelliteId.replace('sat-', '')
-        const tle = data.tles.find((t) => t.line1.substring(2, 7).trim() === noradId)
-        if (!tle) return
+  for (let i = 0; i < points.length; i++) {
+    const p = points[i]
+    const pos = Cartesian3.fromDegrees(p.longitude, p.latitude, p.altitude * 1000)
 
-        const satrec = twoline2satrec(tle.line1, tle.line2)
-        const now = new Date()
-        const points: Cartesian3[] = []
-
-        // Compute one full orbit (~90 minutes for LEO, sample every 2 min)
-        const orbitalPeriodMin = 90
-        const stepMin = 2
-        const steps = Math.ceil(orbitalPeriodMin / stepMin)
-
-        for (let i = 0; i <= steps; i++) {
-          const t = new Date(now.getTime() + i * stepMin * 60_000)
-          const result = propagate(satrec, t)
-          if (!result || typeof result.position === 'boolean') continue
-
-          const gmst = gstime(t)
-          const geodetic = eciToGeodetic(result.position, gmst)
-          const lat = degreesLat(geodetic.latitude)
-          const lon = degreesLong(geodetic.longitude)
-          const alt = geodetic.height
-
-          if (isFinite(lat) && isFinite(lon) && isFinite(alt) && alt > 0) {
-            // Convert altitude from km to meters for Cesium
-            points.push(Cartesian3.fromDegrees(lon, lat, alt * 1000))
-          }
+    if (i > 0) {
+      const prev = points[i - 1]
+      const lonDiff = Math.abs(p.longitude - prev.longitude)
+      // If longitude jumps > 180 degrees, it crossed the antimeridian
+      if (lonDiff > 180) {
+        if (currentSegment.length > 1) {
+          segments.push(currentSegment)
         }
-
-        if (points.length > 2) {
-          cacheRef.current = { id: satelliteId, points }
-          setOrbitPoints(points)
-        }
-      } catch {
-        // Silently fail — orbit path is optional
+        currentSegment = [pos]
+        continue
       }
-    })()
-  }, [satelliteId])
+    }
 
-  return orbitPoints
+    currentSegment.push(pos)
+  }
+
+  if (currentSegment.length > 1) {
+    segments.push(currentSegment)
+  }
+
+  return segments
 }
 
-/** Renders live satellite positions on the globe */
+// -- Component ----------------------------------------------------------------
+
 export function SatelliteLayer() {
   const { viewer } = useCesium()
-  const [cameraHeight, setCameraHeight] = useState(20_000_000)
+  const { positions, getOrbitPath } = useSatellites()
   const selectedEntity = useGlobeStore((s) => s.selectedEntity)
 
-  // Track camera height (throttled)
+  const [cameraHeight, setCameraHeight] = useState(20_000_000)
+  const [viewBounds, setViewBounds] = useState<{
+    south: number; north: number; west: number; east: number
+  } | null>(null)
+  const cameraCheckRef = useRef<ReturnType<typeof setInterval> | null>(null)
+
+  // Track camera for zoom-adaptive culling
   const updateCamera = useCallback(() => {
     if (!viewer) return
     try {
       const height = viewer.camera.positionCartographic.height
       setCameraHeight(height)
+
+      const rect = viewer.camera.computeViewRectangle()
+      if (rect) {
+        setViewBounds({
+          south: CesiumMath.toDegrees(rect.south),
+          north: CesiumMath.toDegrees(rect.north),
+          west: CesiumMath.toDegrees(rect.west),
+          east: CesiumMath.toDegrees(rect.east),
+        })
+      }
     } catch {
       // Camera not ready
     }
@@ -138,98 +172,200 @@ export function SatelliteLayer() {
 
   useEffect(() => {
     updateCamera()
-    const id = setInterval(updateCamera, 500)
-    return () => clearInterval(id)
+    cameraCheckRef.current = setInterval(updateCamera, 1000)
+    return () => {
+      if (cameraCheckRef.current) clearInterval(cameraCheckRef.current)
+    }
   }, [updateCamera])
 
-  const { satellites } = useSatelliteFeed()
-
-  // Determine which satellite is selected for orbit rendering
-  const selectedSatelliteId = useMemo(() => {
-    if (selectedEntity?.type === 'satellite' && selectedEntity.metadata?.satelliteId) {
-      return selectedEntity.metadata.satelliteId as string
+  // Determine which satellite is selected (if any)
+  const selectedNoradId = useMemo(() => {
+    if (selectedEntity?.type === 'satellite' && selectedEntity.metadata?.noradId) {
+      return selectedEntity.metadata.noradId as number
     }
     return null
   }, [selectedEntity])
 
   // Compute orbit path for selected satellite
-  const orbitPath = useOrbitPath(selectedSatelliteId)
+  const orbitSegments = useMemo(() => {
+    if (selectedNoradId === null) return []
+    const points = getOrbitPath(selectedNoradId)
+    return buildOrbitPositions(points)
+  }, [selectedNoradId, getOrbitPath])
 
-  // Zoom-adaptive culling
+  // Compute footprint for selected satellite
+  const selectedSatellite = useMemo(() => {
+    if (selectedNoradId === null) return null
+    return positions.find((s) => s.noradId === selectedNoradId) ?? null
+  }, [selectedNoradId, positions])
+
+  const footprintRadius = useMemo(() => {
+    if (!selectedSatellite) return 0
+    return calculateFootprintRadius(selectedSatellite.altitude)
+  }, [selectedSatellite])
+
+  // Zoom-adaptive filtering
   const visibleSatellites = useMemo(() => {
-    const maxSats = getMaxSatellites(cameraHeight)
-    if (satellites.length <= maxSats) return satellites
+    const limits = getMaxSatellites(cameraHeight)
 
-    // Prioritize: space stations first, then GPS, weather, etc.
-    const priority: Record<string, number> = {
-      'space-stations': 0,
-      'gps-ops': 1,
-      'weather': 2,
-      'science': 3,
-      'resource': 4,
+    // Separate ISS, stations, and starlink
+    const iss: SatellitePosition[] = []
+    const stations: SatellitePosition[] = []
+    const starlink: SatellitePosition[] = []
+
+    for (const sat of positions) {
+      if (isISS(sat)) {
+        iss.push(sat) // ISS always visible
+      } else if (sat.category === 'starlink') {
+        starlink.push(sat)
+      } else {
+        stations.push(sat)
+      }
     }
 
-    const sorted = [...satellites].sort((a, b) => {
-      const pa = priority[a.category] ?? 5
-      const pb = priority[b.category] ?? 5
-      return pa - pb
-    })
+    // Filter starlink by viewport when zoomed in
+    let filteredStarlink = starlink
+    if (viewBounds && cameraHeight < 8_000_000) {
+      filteredStarlink = starlink.filter((s) => isInViewport(s, viewBounds))
+    }
 
-    return sorted.slice(0, maxSats)
-  }, [satellites, cameraHeight])
+    // Apply limits
+    const visibleStations = stations.slice(0, limits.stations)
+    const visibleStarlink = filteredStarlink.slice(0, limits.starlink)
+
+    return [...iss, ...visibleStations, ...visibleStarlink]
+  }, [positions, cameraHeight, viewBounds])
+
+  // Determine orbit line color based on selected satellite category
+  const orbitColor = useMemo(() => {
+    if (!selectedSatellite) return ORBIT_COLOR_CYAN
+    if (isISS(selectedSatellite)) return ORBIT_COLOR_GOLD
+    if (selectedSatellite.category === 'starlink') return ORBIT_COLOR_STARLINK
+    return ORBIT_COLOR_CYAN
+  }, [selectedSatellite])
+
+  // Determine footprint color based on selected satellite category
+  const footprintFillColor = useMemo(() => {
+    if (!selectedSatellite) return CYAN.withAlpha(0.15)
+    if (isISS(selectedSatellite)) return GOLD.withAlpha(0.15)
+    if (selectedSatellite.category === 'starlink') return STARLINK_COLOR.withAlpha(0.15)
+    return CYAN.withAlpha(0.15)
+  }, [selectedSatellite])
+
+  const footprintOutlineColor = useMemo(() => {
+    if (!selectedSatellite) return CYAN.withAlpha(0.5)
+    if (isISS(selectedSatellite)) return GOLD.withAlpha(0.5)
+    if (selectedSatellite.category === 'starlink') return STARLINK_COLOR.withAlpha(0.5)
+    return CYAN.withAlpha(0.5)
+  }, [selectedSatellite])
 
   return (
     <>
-      {/* Orbit path for selected satellite */}
-      {orbitPath && orbitPath.length > 2 && (
-        <Entity>
-          <PolylineGraphics
-            positions={orbitPath}
-            width={1.5}
-            material={ORBIT_COLOR}
-            arcType={ArcType.NONE}
-          />
-        </Entity>
-      )}
-
-      {/* Satellite point entities */}
+      {/* Satellite entities */}
       {visibleSatellites.map((sat) => {
-        const isSelected = selectedSatelliteId === sat.id
-        const color = isSelected ? PURPLE : PURPLE_DIM
-        const pixelSize = isSelected ? 7 : 5
+        const iss = isISS(sat)
+        const isStarlink = sat.category === 'starlink'
+
+        // Determine icon and colors
+        const icon = iss
+          ? SATELLITE_ICON_GOLD
+          : isStarlink
+            ? SATELLITE_ICON_STARLINK
+            : SATELLITE_ICON_CYAN
+
+        const labelColor = iss ? GOLD : isStarlink ? STARLINK_COLOR : CYAN
+
+        // Determine sizing
+        const scale = iss ? 0.85 : isStarlink ? 0.4 : 0.55
+        const scaleByDistance = iss
+          ? issBillboardScale
+          : isStarlink
+            ? starlinkBillboardScale
+            : generalBillboardScale
+
+        const currentLabelScale = iss
+          ? issLabelScaleByDistance
+          : labelScaleByDistance
+
+        // Show label: always for ISS, on hover/close zoom for others
+        const showLabel = iss || (!isStarlink && cameraHeight < 5_000_000)
+
+        // Properties for entity selection
+        const properties = new PropertyBag()
+        properties.addProperty('entityType', new ConstantProperty('satellite'))
+        properties.addProperty('noradId', new ConstantProperty(sat.noradId))
+        properties.addProperty('category', new ConstantProperty(sat.category))
+        properties.addProperty('altitude', new ConstantProperty(sat.altitude))
+        properties.addProperty('velocity', new ConstantProperty(sat.velocity))
 
         return (
           <Entity
-            key={sat.id}
+            key={`sat-${sat.noradId}`}
             name={sat.name}
             position={Cartesian3.fromDegrees(
               sat.longitude,
               sat.latitude,
-              sat.altitude * 1000, // km → meters for Cesium
+              sat.altitude * 1000, // km -> meters
             )}
-            properties={makeSatelliteProperties(sat)}
+            properties={properties}
           >
-            <PointGraphics
-              pixelSize={pixelSize}
-              color={color}
-              outlineColor={Color.BLACK}
-              outlineWidth={1}
-              scaleByDistance={pointScaleByDistance}
-            />
-            <LabelGraphics
-              text={sat.name}
-              font="10px JetBrains Mono, monospace"
-              fillColor={PURPLE}
-              style={LabelStyle.FILL_AND_OUTLINE}
-              outlineColor={Color.BLACK}
-              outlineWidth={2}
-              pixelOffset={labelPixelOffset}
+            <BillboardGraphics
+              image={icon}
+              scale={scale}
+              alignedAxis={Cartesian3.ZERO}
+              scaleByDistance={scaleByDistance}
+              horizontalOrigin={HorizontalOrigin.CENTER}
               verticalOrigin={VerticalOrigin.CENTER}
-              scaleByDistance={labelScaleByDistance}
             />
+            {showLabel && (
+              <LabelGraphics
+                text={sat.name}
+                font={iss ? '11px JetBrains Mono, monospace' : '9px JetBrains Mono, monospace'}
+                fillColor={labelColor}
+                style={LabelStyle.FILL_AND_OUTLINE}
+                outlineColor={Color.BLACK}
+                outlineWidth={2}
+                pixelOffset={labelPixelOffset}
+                verticalOrigin={VerticalOrigin.CENTER}
+                scaleByDistance={currentLabelScale}
+              />
+            )}
           </Entity>
         )
       })}
+
+      {/* Orbit path polylines for selected satellite */}
+      {orbitSegments.map((segment, idx) => (
+        <Entity key={`orbit-seg-${selectedNoradId}-${idx}`}>
+          <PolylineGraphics
+            positions={segment}
+            width={1.5}
+            material={orbitColor}
+          />
+        </Entity>
+      ))}
+
+      {/* FOV footprint for selected satellite */}
+      {selectedSatellite && footprintRadius > 0 && (
+        <Entity
+          key={`footprint-${selectedNoradId}`}
+          position={Cartesian3.fromDegrees(
+            selectedSatellite.longitude,
+            selectedSatellite.latitude,
+            0,
+          )}
+        >
+          <EllipseGraphics
+            semiMajorAxis={footprintRadius}
+            semiMinorAxis={footprintRadius}
+            material={footprintFillColor}
+            outline
+            outlineColor={footprintOutlineColor}
+            outlineWidth={2}
+            height={0}
+          />
+        </Entity>
+      )}
     </>
   )
 }

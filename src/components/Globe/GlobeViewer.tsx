@@ -17,6 +17,7 @@ import {
 } from 'cesium'
 import { useGlobeStore } from '../../store/globe'
 import { GlobeToolbar } from './GlobeToolbar'
+import { LocationSearch } from './LocationSearch'
 
 Ion.defaultAccessToken = ''
 
@@ -213,6 +214,7 @@ function GlobeViewer({ children }: GlobeViewerProps) {
 
   return (
     <div className="globe-container" style={{ width: '100%', height: '100%', position: 'relative' }}>
+      <LocationSearch />
       <GlobeToolbar />
       <ResiumViewer
         ref={refCallback}

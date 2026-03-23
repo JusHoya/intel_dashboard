@@ -659,129 +659,117 @@ app.get('/api/news', async (req, res) => {
 })
 
 /* ── Satellite TLE proxy ──────────────────────────────────────────────
-   Fetches TLE data from CelesTrak for satellite orbit propagation.
-   TLE data is cached for 4 hours since orbits change slowly. */
+   Fetches TLE (Two-Line Element) data from CelesTrak for satellite
+   tracking. Combines space stations and a sample of Starlink sats.
+   Cached for 2 hours since TLEs don't change frequently. */
 
-interface TLEEntry {
+interface SatelliteTLEData {
   name: string
   line1: string
   line2: string
+  noradId: number
+  category: 'station' | 'starlink' | 'general'
 }
 
-interface SatelliteCache {
-  tles: TLEEntry[]
+interface SatelliteTLECache {
+  satellites: SatelliteTLEData[]
   fetchedAt: number
 }
 
-const SAT_CACHE_TTL_MS = 4 * 60 * 60 * 1000 // 4 hours
-let satelliteCache: SatelliteCache | null = null
+const SATELLITE_CACHE_TTL_MS = 7_200_000 // 2 hours
+let satelliteTLECache: SatelliteTLECache | null = null
 
-/** CelesTrak groups to fetch — curated set for reasonable satellite count */
-const CELESTRAK_GROUPS: { group: string; category: string }[] = [
-  { group: 'stations', category: 'space-stations' },
-  { group: 'gps-ops', category: 'gps-ops' },
-  { group: 'weather', category: 'weather' },
-  { group: 'science', category: 'science' },
-  { group: 'resource', category: 'resource' },
-]
+/** Parse raw TLE text into structured satellite records */
+function parseTLEText(text: string, category: 'station' | 'starlink' | 'general'): SatelliteTLEData[] {
+  const lines = text.trim().split('\n').map((l) => l.trim()).filter((l) => l.length > 0)
+  const satellites: SatelliteTLEData[] = []
 
-/** Parse raw CelesTrak 3-line TLE text into structured TLE objects */
-function parseTLEText(text: string, category: string): TLEEntry[] {
-  const lines = text.trim().split('\n').map((l) => l.trim()).filter(Boolean)
-  const entries: TLEEntry[] = []
-
+  // TLE format: 3 lines per satellite (name, line1, line2)
   for (let i = 0; i + 2 < lines.length; i += 3) {
     const name = lines[i]
     const line1 = lines[i + 1]
     const line2 = lines[i + 2]
 
-    // Basic validation: line1 starts with '1 ', line2 starts with '2 '
-    if (line1.startsWith('1 ') && line2.startsWith('2 ')) {
-      entries.push({
-        name: `${name}|${category}`,
-        line1,
-        line2,
-      })
+    // Validate TLE lines start with '1 ' and '2 '
+    if (!line1.startsWith('1 ') || !line2.startsWith('2 ')) {
+      continue
     }
+
+    // Extract NORAD catalog number from line 1 (columns 3-7)
+    const noradId = parseInt(line1.substring(2, 7).trim(), 10)
+    if (isNaN(noradId)) continue
+
+    satellites.push({ name: name.trim(), line1, line2, noradId, category })
   }
 
-  return entries
+  return satellites
 }
 
-/** Fetch TLE data from CelesTrak for all configured groups */
-async function fetchSatelliteTLEs(): Promise<TLEEntry[]> {
-  const allEntries: TLEEntry[] = []
+/** Fetch TLE data from CelesTrak for a given group */
+async function fetchCelesTrakTLE(group: string, category: 'station' | 'starlink' | 'general'): Promise<SatelliteTLEData[]> {
+  const url = `https://celestrak.org/NORAD/elements/gp.php?GROUP=${group}&FORMAT=tle`
+  console.log(`[satellites] Fetching TLE for group: ${group}`)
 
-  for (const { group, category } of CELESTRAK_GROUPS) {
-    try {
-      const url = `https://celestrak.org/NORAD/elements/gp.php?GROUP=${group}&FORMAT=tle`
-      console.log(`[satellites] Fetching TLEs for group: ${group}`)
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(), 15_000)
 
-      const controller = new AbortController()
-      const timeout = setTimeout(() => controller.abort(), 15_000)
+  const response = await fetch(url, { signal: controller.signal })
+  clearTimeout(timeout)
 
-      const response = await fetch(url, { signal: controller.signal })
-      clearTimeout(timeout)
-
-      if (!response.ok) {
-        console.warn(`[satellites] CelesTrak returned ${response.status} for group ${group}`)
-        continue
-      }
-
-      const text = await response.text()
-      const entries = parseTLEText(text, category)
-      allEntries.push(...entries)
-
-      console.log(`[satellites] Parsed ${entries.length} TLEs for group: ${group}`)
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error)
-      console.warn(`[satellites] Failed to fetch group ${group}: ${message}`)
-    }
+  if (!response.ok) {
+    throw new Error(`CelesTrak returned status ${response.status} for ${group}`)
   }
 
-  // Cap at 100 satellites for performance — prioritize space stations, then GPS, etc.
-  if (allEntries.length > 100) {
-    console.log(`[satellites] Capping from ${allEntries.length} to 100 satellites`)
-    return allEntries.slice(0, 100)
-  }
-
-  return allEntries
+  const text = await response.text()
+  return parseTLEText(text, category)
 }
 
-app.get('/api/satellites', async (_req, res) => {
-  // Serve from cache if still fresh
-  if (satelliteCache && Date.now() - satelliteCache.fetchedAt < SAT_CACHE_TTL_MS) {
-    const ageHrs = ((Date.now() - satelliteCache.fetchedAt) / 3_600_000).toFixed(1)
-    console.log(`[satellites] Serving ${satelliteCache.tles.length} TLEs from cache (age: ${ageHrs}h)`)
-    res.json({ tles: satelliteCache.tles, fetchedAt: satelliteCache.fetchedAt })
+app.get('/api/satellites/tle', async (_req, res) => {
+  // Serve from cache if fresh
+  if (satelliteTLECache && Date.now() - satelliteTLECache.fetchedAt < SATELLITE_CACHE_TTL_MS) {
+    const age = ((Date.now() - satelliteTLECache.fetchedAt) / 1000 / 60).toFixed(1)
+    console.log(`[satellites] Serving ${satelliteTLECache.satellites.length} TLEs from cache (age: ${age}min)`)
+    res.json({ satellites: satelliteTLECache.satellites, fetchedAt: satelliteTLECache.fetchedAt })
     return
   }
 
   try {
-    const tles = await fetchSatelliteTLEs()
+    // Fetch space stations and Starlink in parallel
+    const [stations, starlink] = await Promise.all([
+      fetchCelesTrakTLE('stations', 'station').catch((err) => {
+        console.warn(`[satellites] Space stations fetch failed: ${err instanceof Error ? err.message : String(err)}`)
+        return [] as SatelliteTLEData[]
+      }),
+      fetchCelesTrakTLE('starlink', 'starlink').catch((err) => {
+        console.warn(`[satellites] Starlink fetch failed: ${err instanceof Error ? err.message : String(err)}`)
+        return [] as SatelliteTLEData[]
+      }),
+    ])
 
-    if (tles.length > 0) {
-      satelliteCache = { tles, fetchedAt: Date.now() }
-      console.log(`[satellites] Serving ${tles.length} fresh TLEs`)
-      res.json({ tles, fetchedAt: satelliteCache.fetchedAt })
-    } else {
-      throw new Error('No TLEs fetched from any group')
-    }
+    // Limit Starlink to 50 most recent (highest NORAD IDs = most recent launches)
+    const starlinkSorted = starlink
+      .sort((a, b) => b.noradId - a.noradId)
+      .slice(0, 50)
+
+    const allSatellites = [...stations, ...starlinkSorted]
+    console.log(`[satellites] Fetched ${stations.length} stations + ${starlinkSorted.length} Starlink (of ${starlink.length} total)`)
+
+    satelliteTLECache = { satellites: allSatellites, fetchedAt: Date.now() }
+    res.json({ satellites: allSatellites, fetchedAt: satelliteTLECache.fetchedAt })
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
-    console.warn(`[satellites] CelesTrak fetch failed: ${message}`)
+    console.warn(`[satellites] TLE fetch failed: ${message}`)
 
-    // Return stale cache if available
-    if (satelliteCache) {
-      res.json({ tles: satelliteCache.tles, fetchedAt: satelliteCache.fetchedAt })
+    if (satelliteTLECache) {
+      res.json({ satellites: satelliteTLECache.satellites, fetchedAt: satelliteTLECache.fetchedAt })
     } else {
-      res.status(502).json({ error: 'Satellite data unavailable' })
+      res.status(502).json({ error: 'Satellite TLE data unavailable' })
     }
   }
 })
 
 app.listen(PORT, () => {
   console.log(`[server] API proxy running on http://localhost:${PORT}`)
-  console.log(`[server] Endpoints: /api/flights, /api/flight-route, /api/stocks, /api/crypto/candles, /api/google-tiles/key, /api/news, /api/geocode, /api/satellites`)
+  console.log(`[server] Endpoints: /api/flights, /api/flight-route, /api/stocks, /api/crypto/candles, /api/google-tiles/key, /api/news, /api/geocode, /api/satellites/tle`)
   console.log(`[server] CORS enabled for localhost origins`)
 })

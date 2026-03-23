@@ -1,31 +1,35 @@
-/** Raw TLE (Two-Line Element) data from CelesTrak */
-export interface TLE {
+/** Category of satellite for rendering differentiation */
+export type SatelliteCategory = 'station' | 'starlink' | 'general'
+
+/** Raw TLE data from the server */
+export interface SatelliteTLE {
   name: string
   line1: string
   line2: string
-}
-
-/** Propagated satellite position at a given instant */
-export interface SatellitePosition {
-  id: string
-  name: string
-  latitude: number
-  longitude: number
-  altitude: number  // km
-  velocity: number  // km/s
+  noradId: number
   category: SatelliteCategory
 }
 
-/** CelesTrak satellite group categories */
-export type SatelliteCategory =
-  | 'space-stations'
-  | 'gps-ops'
-  | 'weather'
-  | 'science'
-  | 'resource'
-
-/** Server response shape for /api/satellites */
+/** Response from the satellite TLE API endpoint */
 export interface SatelliteTLEResponse {
-  tles: TLE[]
+  satellites: SatelliteTLE[]
   fetchedAt: number
+}
+
+/** Propagated satellite position at a given time */
+export interface SatellitePosition {
+  name: string
+  noradId: number
+  category: SatelliteCategory
+  latitude: number   // degrees
+  longitude: number  // degrees
+  altitude: number   // kilometers
+  velocity: number   // km/s magnitude
+}
+
+/** Orbit path point for polyline rendering */
+export interface OrbitPoint {
+  longitude: number  // degrees
+  latitude: number   // degrees
+  altitude: number   // kilometers (converted to meters for Cesium)
 }

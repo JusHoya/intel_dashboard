@@ -1,96 +1,68 @@
 import type { YouTubeChannel } from '../types/news'
 
 /**
- * Curated list of live news YouTube channels.
+ * YouTube live news channels.
  *
- * Video IDs point to each channel's 24/7 live stream.  These are
- * relatively stable but may change if the channel re-creates their
- * live stream — check periodically and update as needed.
+ * Channels with a `channelId` use the auto-resolving live_stream embed URL:
+ *   https://www.youtube.com/embed/live_stream?channel=CHANNEL_ID
+ * This avoids stale video IDs, since 24/7 live streams rotate IDs frequently.
+ *
+ * Channels marked `embedBlocked: true` are known to restrict iframe embedding.
  */
-export const NEWS_CHANNELS: YouTubeChannel[] = [
-  // ── Business / Financial ──────────────────────────────────────────
+export const NEWS_CHANNELS: readonly YouTubeChannel[] = [
   {
-    id: 'bloomberg',
-    name: 'Bloomberg TV',
-    videoId: 'dp8PhLsUcFEgm', // Bloomberg Global Financial News
-    region: 'US',
-    category: 'business',
+    name: 'Al Jazeera English',
+    channelId: 'UCNye-wNBqNL5ZzHSJj3l8Bg',
+    notes: '24/7 English live stream',
   },
   {
-    id: 'cnbc',
-    name: 'CNBC',
-    videoId: '9NyxcX3rhQs', // CNBC Live
-    region: 'US',
-    category: 'business',
+    name: 'France 24 English',
+    channelId: 'UCQfwfsi5VrQ8yKZ-UWmAEFg',
+    notes: '24/7 English live stream',
   },
   {
-    id: 'yahoo-finance',
-    name: 'Yahoo Finance',
-    videoId: 'SyyGMCfkMyo', // Yahoo Finance Live
-    region: 'US',
-    category: 'business',
-  },
-
-  // ── World News ────────────────────────────────────────────────────
-  {
-    id: 'aljazeera',
-    name: 'Al Jazeera',
-    videoId: 'gCNeDWCI0vo', // Al Jazeera English Live
-    region: 'QA',
-    category: 'world',
-  },
-  {
-    id: 'france24',
-    name: 'France 24',
-    videoId: 'h3MuIUNCCzI', // France 24 English Live
-    region: 'FR',
-    category: 'world',
-  },
-  {
-    id: 'dw',
     name: 'DW News',
-    videoId: 'GE_SfNVNyqk', // DW News Live
-    region: 'DE',
-    category: 'world',
+    channelId: 'UCknLrEdhRCp1aegoMqRaCZg',
+    notes: 'Deutsche Welle English live stream',
   },
   {
-    id: 'skynews',
     name: 'Sky News',
-    videoId: 'siyW0GOBtUo', // Sky News Live
-    region: 'GB',
-    category: 'world',
+    channelId: 'UCoMdktPbSTixAyNGwb-UYkQ',
+    notes: 'UK 24/7 live stream',
   },
   {
-    id: 'abc-au',
-    name: 'ABC News AU',
-    videoId: 'W1ilCy6XrmI', // ABC News Australia Live
-    region: 'AU',
-    category: 'world',
+    name: 'ABC News Australia',
+    channelId: 'UCVgO39Bk5sMo66-6o6Spn6Q',
+    notes: 'Australian Broadcasting Corporation',
   },
-
-  // ── Regional ──────────────────────────────────────────────────────
   {
-    id: 'ndtv',
     name: 'NDTV',
-    videoId: 'RDLhGMIGCb0', // NDTV 24x7 Live
-    region: 'IN',
-    category: 'regional',
+    channelId: 'UCl5a3kbSWt_CkAMdTyRNzEQ',
+    notes: 'Indian news, 24/7 English',
   },
   {
-    id: 'nhk',
     name: 'NHK World',
-    videoId: 'f0lYkdA-Bh4', // NHK World Japan Live
-    region: 'JP',
-    category: 'regional',
+    channelId: 'UCLXo7UDZvByw2ixzpQCufnA',
+    notes: 'Japan international news',
   },
   {
-    id: 'arirang',
-    name: 'Arirang TV',
-    videoId: 'vJm6Kpaqm08', // Arirang TV Korea Live
-    region: 'KR',
-    category: 'regional',
+    name: 'Arirang',
+    channelId: 'UCSDv8E27dNaYjYYRjpstd7A',
+    notes: 'South Korean international news',
   },
-]
-
-/** Default channel to show when no selection is made */
-export const DEFAULT_CHANNEL_ID = 'aljazeera'
+  {
+    name: 'Bloomberg',
+    embedBlocked: true,
+    notes: 'Embedding restricted by Bloomberg',
+  },
+  {
+    name: 'CNBC',
+    embedBlocked: true,
+    notes: 'Embedding restricted by CNBC',
+  },
+  {
+    name: 'Yahoo Finance',
+    embedBlocked: true,
+    notes: 'Embedding restricted by Yahoo Finance',
+  },
+] as const

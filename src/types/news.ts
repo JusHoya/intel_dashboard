@@ -17,11 +17,16 @@ export interface NewsItem {
 
 /** A curated YouTube live news channel */
 export interface YouTubeChannel {
-  id: string
+  /** Display name of the channel/network */
   name: string
-  videoId: string
-  region: string
-  category: 'business' | 'world' | 'regional'
+  /** YouTube channel ID (used for live_stream embed URL) */
+  channelId?: string
+  /** Specific video ID (fallback if channelId live_stream doesn't work) */
+  videoId?: string
+  /** Whether embedding is known to be blocked by the channel */
+  embedBlocked?: boolean
+  /** Brief note about the channel */
+  notes?: string
 }
 
 /** Active filter state for news */
