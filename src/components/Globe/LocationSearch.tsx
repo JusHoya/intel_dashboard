@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback, type KeyboardEvent, type ChangeEvent } from 'react'
-import { Cartesian3, type Viewer as CesiumViewer } from 'cesium'
+import { useGlobeStore } from '../../store/globe'
 
 const NOMINATIM_BASE = 'https://nominatim.openstreetmap.org/search'
 
@@ -16,12 +16,18 @@ interface GeocodingResult {
  * Floating search bar overlaid on the globe panel.
  * Accepts city names, country names, addresses, or lat,lon coordinates.
  * Resolves via Nominatim geocoding and flies the Cesium camera to the result.
+ * Shows a dropdown of recently visited locations on focus.
  */
 export function LocationSearch() {
   const [query, setQuery] = useState('')
   const [feedback, setFeedback] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
+  const [showHistory, setShowHistory] = useState(false)
   const feedbackTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const inputRef = useRef<HTMLInputElement>(null)
+
+  const setFlyToTarget = useGlobeStore((s) => s.setFlyToTarget)
+  const locationHistory = useGlobeStore((s) => s.locationHistory)
 
   const showFeedback = useCallback((msg: string, durationMs = 3000) => {
     if (feedbackTimer.current) clearTimeout(feedbackTimer.current)
@@ -29,28 +35,14 @@ export function LocationSearch() {
     feedbackTimer.current = setTimeout(() => setFeedback(null), durationMs)
   }, [])
 
-  /** Retrieve the Cesium viewer instance from the global reference */
-  const getViewer = useCallback((): CesiumViewer | null => {
-    const viewer = (window as unknown as Record<string, unknown>).__cesiumViewer as CesiumViewer | undefined
-    if (viewer && !viewer.isDestroyed()) return viewer
-    return null
-  }, [])
-
-  /** Fly the camera to a given lat/lon */
+  /** Fly to a location via the store (triggers auto-3D, pin drop, history) */
   const flyTo = useCallback(
     (lat: number, lon: number, label: string) => {
-      const viewer = getViewer()
-      if (!viewer) {
-        showFeedback('Globe not ready')
-        return
-      }
-      viewer.camera.flyTo({
-        destination: Cartesian3.fromDegrees(lon, lat, 800_000),
-        duration: 2.0,
-      })
+      setFlyToTarget(lat, lon, label)
       showFeedback(`Flying to ${label}`)
+      setShowHistory(false)
     },
-    [getViewer, showFeedback],
+    [setFlyToTarget, showFeedback],
   )
 
   /** Handle Enter key: parse coordinates or geocode via Nominatim */
@@ -107,6 +99,10 @@ export function LocationSearch() {
     (e: KeyboardEvent<HTMLInputElement>) => {
       if (e.key === 'Enter') {
         void handleSearch()
+        setShowHistory(false)
+      } else if (e.key === 'Escape') {
+        setShowHistory(false)
+        inputRef.current?.blur()
       }
     },
     [handleSearch],
@@ -114,6 +110,15 @@ export function LocationSearch() {
 
   const handleChange = useCallback((e: ChangeEvent<HTMLInputElement>) => {
     setQuery(e.target.value)
+  }, [])
+
+  const handleFocus = useCallback(() => {
+    if (locationHistory.length > 0) setShowHistory(true)
+  }, [locationHistory.length])
+
+  const handleBlur = useCallback(() => {
+    // Delay to allow click on history item
+    setTimeout(() => setShowHistory(false), 200)
   }, [])
 
   return (
@@ -125,7 +130,7 @@ export function LocationSearch() {
         zIndex: 10,
         display: 'flex',
         flexDirection: 'column',
-        gap: 4,
+        gap: 0,
       }}
     >
       {/* Search input row */}
@@ -137,7 +142,7 @@ export function LocationSearch() {
           border: '1px solid #1a1a2e',
           backdropFilter: 'blur(8px)',
           WebkitBackdropFilter: 'blur(8px)',
-          width: 250,
+          width: 280,
         }}
       >
         <span
@@ -155,10 +160,13 @@ export function LocationSearch() {
           {'>'}
         </span>
         <input
+          ref={inputRef}
           type="text"
           value={query}
           onChange={handleChange}
           onKeyDown={handleKeyDown}
+          onFocus={handleFocus}
+          onBlur={handleBlur}
           placeholder="Search location..."
           disabled={loading}
           style={{
@@ -175,6 +183,70 @@ export function LocationSearch() {
         />
       </div>
 
+      {/* Recent location history dropdown */}
+      {showHistory && locationHistory.length > 0 && (
+        <div
+          style={{
+            background: 'rgba(13, 13, 18, 0.92)',
+            border: '1px solid #1a1a2e',
+            borderTop: 'none',
+            backdropFilter: 'blur(8px)',
+            WebkitBackdropFilter: 'blur(8px)',
+            width: 280,
+            maxHeight: 200,
+            overflowY: 'auto',
+          }}
+        >
+          <div
+            style={{
+              padding: '3px 8px',
+              fontFamily: 'JetBrains Mono, monospace',
+              fontSize: 9,
+              color: '#555',
+              textTransform: 'uppercase',
+              letterSpacing: '0.1em',
+            }}
+          >
+            Recent Locations
+          </div>
+          {locationHistory.map((loc, i) => (
+            <button
+              key={`${loc.label}-${i}`}
+              type="button"
+              onClick={() => flyTo(loc.latitude, loc.longitude, loc.label)}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 6,
+                width: '100%',
+                padding: '4px 8px',
+                background: 'transparent',
+                border: 'none',
+                cursor: 'pointer',
+                fontFamily: 'JetBrains Mono, monospace',
+                fontSize: 10,
+                color: '#00ff41',
+                textAlign: 'left',
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.background = 'rgba(0, 255, 65, 0.08)'
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.background = 'transparent'
+              }}
+            >
+              <span style={{ color: '#ff4444', flexShrink: 0 }}>&#9679;</span>
+              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {loc.label}
+              </span>
+              <span style={{ marginLeft: 'auto', color: '#555', flexShrink: 0, fontSize: 9 }}>
+                {loc.latitude.toFixed(2)}, {loc.longitude.toFixed(2)}
+              </span>
+            </button>
+          ))}
+        </div>
+      )}
+
       {/* Feedback toast */}
       {feedback && (
         <div
@@ -187,7 +259,8 @@ export function LocationSearch() {
             fontFamily: 'JetBrains Mono, monospace',
             fontSize: 10,
             padding: '3px 8px',
-            width: 250,
+            width: 280,
+            marginTop: 4,
           }}
         >
           {feedback}

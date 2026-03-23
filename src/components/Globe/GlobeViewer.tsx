@@ -1,13 +1,16 @@
-import { type ReactNode, useCallback, useEffect, useRef } from 'react'
-import { Viewer as ResiumViewer, ScreenSpaceEventHandler, ScreenSpaceEvent } from 'resium'
+import { type ReactNode, useCallback, useEffect, useRef, useMemo } from 'react'
+import { Viewer as ResiumViewer, ScreenSpaceEventHandler, ScreenSpaceEvent, Entity, PointGraphics, LabelGraphics } from 'resium'
 import {
   Ion,
   Color,
   Cartesian3,
   BoundingSphere,
+  Cartesian2 as CesiumCartesian2,
   ImageryLayer,
   TileMapServiceImageryProvider,
   EllipsoidTerrainProvider,
+  NearFarScalar,
+  VerticalOrigin,
   buildModuleUrl,
   ScreenSpaceEventType,
   Math as CesiumMath,
@@ -40,6 +43,18 @@ function GlobeViewer({ children }: GlobeViewerProps) {
   const clearSelection = useGlobeStore((s) => s.clearSelection)
   const setHoveredFlight = useGlobeStore((s) => s.setHoveredFlight)
   const viewMode = useGlobeStore((s) => s.viewMode)
+  const pins = useGlobeStore((s) => s.pins)
+
+  const pinLabelStyle = useMemo(() => ({
+    font: '11px JetBrains Mono, monospace',
+    fillColor: Color.fromCssColorString('#ff4444'),
+    outlineColor: Color.BLACK,
+    outlineWidth: 2,
+    pixelOffset: new CesiumCartesian2(0, -14),
+    verticalOrigin: VerticalOrigin.BOTTOM,
+    scaleByDistance: new NearFarScalar(1_000, 1.0, 500_000, 0.4),
+    translucencyByDistance: new NearFarScalar(1_000, 1.0, 2_000_000, 0.0),
+  }), [])
 
   const handleViewerReady = useCallback(
     (viewer: CesiumViewer) => {
@@ -171,13 +186,14 @@ function GlobeViewer({ children }: GlobeViewerProps) {
     const viewer = viewerRef.current
     if (!viewer) return
 
+    // 600 ft ≈ 183 meters
     viewer.camera.flyTo({
       destination: Cartesian3.fromDegrees(
         flyToTarget.longitude,
         flyToTarget.latitude,
-        5_000_000,
+        183,
       ),
-      duration: 2.0,
+      duration: 2.5,
     })
 
     // Clear the target so the same location can be re-triggered
@@ -246,6 +262,25 @@ function GlobeViewer({ children }: GlobeViewerProps) {
             type={ScreenSpaceEventType.MOUSE_MOVE}
           />
         </ScreenSpaceEventHandler>
+        {/* Pin markers for visited locations */}
+        {pins.map((pin, i) => (
+          <Entity
+            key={`pin-${i}-${pin.label}`}
+            position={Cartesian3.fromDegrees(pin.longitude, pin.latitude, 0)}
+          >
+            <PointGraphics
+              color={Color.fromCssColorString('#ff4444')}
+              pixelSize={8}
+              outlineColor={Color.BLACK}
+              outlineWidth={1}
+              scaleByDistance={new NearFarScalar(500, 1.0, 500_000, 0.5)}
+            />
+            <LabelGraphics
+              text={pin.label}
+              {...pinLabelStyle}
+            />
+          </Entity>
+        ))}
         {children}
       </ResiumViewer>
     </div>
