@@ -25,4 +25,4 @@ A browser-based intelligence + financial dashboard. Bloomberg Terminal meets int
 - All API keys proxied through backend (never exposed to client)
 
 ## Current Phase
-Sprint 5 in progress: Command bar (Ctrl+K) with goto/chart/news/view/clear commands + address/coordinate geocoding, layout presets (5 modes persisted to localStorage), satellite tracking (CelesTrak TLE, 100 satellites, SGP4 propagation). Performance optimization and test suite still pending.
+Sprint 6 complete: Signal engine translates GDELT news into financial signals across 8 categories (conflict, sanctions, energy, political, disaster, cyber, monetary, supply-chain). Confidence scoring, severity classification, asset impact mapping. Signal panel with list/detail views. Server-side backtesting framework + paper trading tracker.

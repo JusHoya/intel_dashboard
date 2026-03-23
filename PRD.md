@@ -425,13 +425,13 @@ This is the most important test regime — it validates whether intelligence sig
 - [ ] Visual regression baselines
 
 ### Sprint 6 (Week 11-14): Signal Engine v1
-- [ ] Signal schema implementation
-- [ ] Historical event data pipeline (GDELT ingest)
-- [ ] Historical market data pipeline
-- [ ] Backtesting framework
-- [ ] Signal → asset mapping rules (initial rule set)
-- [ ] Backtest evaluation dashboard
-- [ ] Paper trading system
+- [x] Signal schema implementation (8 categories, confidence scoring, severity classification)
+- [x] Historical event data pipeline (GDELT ingest with date range + category filtering)
+- [x] Historical market data pipeline (Yahoo Finance OHLCV with multi-symbol support)
+- [x] Backtesting framework (signal generation → trade simulation → metrics: accuracy, Sharpe, drawdown)
+- [x] Signal → asset mapping rules (keyword patterns per category → ticker/direction/reasoning)
+- [x] Backtest evaluation dashboard (Signal panel with active/detail views, severity/category badges, confidence bars)
+- [x] Paper trading system (in-memory position tracker with P&L, open/close, performance summary)
 
 ### Sprint 7 (Week 15-18): Intelligence Shaders & Advanced
 - [ ] NVG shader (post-processing)
