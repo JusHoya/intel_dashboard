@@ -52,8 +52,8 @@ const ORBIT_COLOR_STARLINK = Color.fromCssColorString('#0891b2').withAlpha(0.3)
 // Earth radius in km
 const EARTH_RADIUS_KM = 6371
 
-// FOV half-angle in radians (17 degrees)
-const FOV_HALF_ANGLE_RAD = CesiumMath.toRadians(17)
+// FOV half-angle in radians (7 degrees)
+const FOV_HALF_ANGLE_RAD = CesiumMath.toRadians(7)
 
 // -- Helpers ------------------------------------------------------------------
 
