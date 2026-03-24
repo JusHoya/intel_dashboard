@@ -1,4 +1,7 @@
+import { useMemo } from 'react'
 import { useNewsStore } from '../../store/news'
+import { getMediaBias, computeBiasBalance } from '../../data/mediaBias'
+import { BiasBadge, BiasBar, FactualDot } from './BiasBadge'
 
 /** Format GDELT date string (YYYYMMDDTHHmmSS → relative time) */
 function formatTime(dateStr: string): string {
@@ -68,6 +71,12 @@ export function NewsFeed() {
   const items = useNewsStore((s) => s.items)
   const loading = useNewsStore((s) => s.loading)
 
+  // Compute aggregate bias balance across all current articles
+  const biasBalance = useMemo(() => {
+    const sources = items.map((item) => item.domain || item.source)
+    return computeBiasBalance(sources)
+  }, [items])
+
   if (loading && items.length === 0) {
     return (
       <div className="flex h-full items-center justify-center">
@@ -94,6 +103,7 @@ export function NewsFeed() {
       <div className="flex items-center gap-2 border-b border-[#1a1a2e] px-3 py-1 font-mono text-[10px] uppercase tracking-wider text-neutral-700">
         <div className="w-7">Time</div>
         <div className="flex-1">Headline</div>
+        <div className="w-7 text-center">Bias</div>
         <div className="w-8 text-center">Tone</div>
       </div>
 
@@ -117,11 +127,18 @@ export function NewsFeed() {
               <span className="font-mono text-xs leading-tight text-neutral-300 group-hover:text-[#00ff41]">
                 {item.title}
               </span>
-              <span className="font-mono text-[10px] text-neutral-600">
+              <span className="flex items-center gap-1 font-mono text-[10px] text-neutral-600">
+                {(() => {
+                  const bias = getMediaBias(item.domain || item.source)
+                  return bias ? <FactualDot score={bias.factual} /> : null
+                })()}
                 {item.source}
                 {item.sourceCountry ? ` · ${item.sourceCountry}` : ''}
               </span>
             </div>
+
+            {/* Bias indicator */}
+            <BiasBadge source={item.domain || item.source} />
 
             {/* Sentiment */}
             <ToneBadge tone={item.tone} />
@@ -129,12 +146,32 @@ export function NewsFeed() {
         ))}
       </div>
 
-      {/* Footer with count */}
-      <div className="border-t border-[#1a1a2e] px-3 py-1">
-        <span className="font-mono text-[10px] text-neutral-600">
-          {items.length} ARTICLES · GDELT
-          {loading ? ' · UPDATING...' : ''}
-        </span>
+      {/* Footer with count + bias balance */}
+      <div className="flex flex-col gap-1 border-t border-[#1a1a2e] px-3 py-1">
+        <div className="flex items-center justify-between">
+          <span className="font-mono text-[10px] text-neutral-600">
+            {items.length} ARTICLES · GDELT
+            {loading ? ' · UPDATING...' : ''}
+          </span>
+          {biasBalance.knownCount > 0 && (
+            <span
+              className="font-mono text-[10px] font-bold"
+              style={{
+                color: Math.abs(biasBalance.score) < 0.3
+                  ? '#00ff41'
+                  : Math.abs(biasBalance.score) < 1
+                    ? '#ffaa00'
+                    : '#ff4444',
+              }}
+              title={`Feed balance: ${biasBalance.score.toFixed(2)} (${biasBalance.knownCount}/${biasBalance.totalCount} sources identified)`}
+            >
+              {biasBalance.label}
+            </span>
+          )}
+        </div>
+        {biasBalance.knownCount > 0 && (
+          <BiasBar distribution={biasBalance.distribution} knownCount={biasBalance.knownCount} />
+        )}
       </div>
     </div>
   )

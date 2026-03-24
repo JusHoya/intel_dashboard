@@ -51,6 +51,16 @@ export const NEWS_CHANNELS: readonly YouTubeChannel[] = [
     notes: 'South Korean international news',
   },
   {
+    name: 'Fox News',
+    channelId: 'UCXIJgqnII2ZOINSWNOGFThA',
+    notes: 'US cable news, Fox News Channel',
+  },
+  {
+    name: 'NewsNation',
+    channelId: 'UCsLbOuzlRb3z75_U4VCmDhA',
+    notes: 'US independent cable news',
+  },
+  {
     name: 'Bloomberg',
     embedBlocked: true,
     notes: 'Embedding restricted by Bloomberg',

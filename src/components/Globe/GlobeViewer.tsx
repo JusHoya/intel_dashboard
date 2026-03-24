@@ -154,7 +154,9 @@ function GlobeViewer({ children }: GlobeViewerProps) {
   // Handle mouse move for flight hover — throttled to 100ms
   const lastMoveRef = useRef(0)
   const handleMouseMove = useCallback(
-    (event: { endPosition: Cartesian2 }) => {
+    (event: { position: Cartesian2 } | { startPosition: Cartesian2; endPosition: Cartesian2 }) => {
+      if (!('endPosition' in event)) return
+      const { endPosition } = event
       const now = Date.now()
       if (now - lastMoveRef.current < 100) return
       lastMoveRef.current = now
@@ -162,7 +164,7 @@ function GlobeViewer({ children }: GlobeViewerProps) {
       const viewer = viewerRef.current
       if (!viewer) return
 
-      const picked = viewer.scene.pick(event.endPosition)
+      const picked = viewer.scene.pick(endPosition)
       if (defined(picked) && picked.id) {
         const entity = picked.id
         const entityType = entity.properties?.entityType?.getValue(viewer.clock.currentTime)

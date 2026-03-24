@@ -23,6 +23,10 @@ interface GlobeState {
   locationHistory: FlyToTarget[]
   /** Pin markers dropped on the globe */
   pins: FlyToTarget[]
+  /** Show OSM detail overlay (roads, borders, labels) */
+  showDetailOverlay: boolean
+  /** Show US state capital markers */
+  showStateCapitals: boolean
   selectEntity: (entity: GlobeEntity) => void
   clearSelection: () => void
   setGlobeReady: (ready: boolean) => void
@@ -31,6 +35,8 @@ interface GlobeState {
   toggleViewMode: () => void
   setFlyToTarget: (lat: number, lon: number, label: string) => void
   clearFlyToTarget: () => void
+  toggleDetailOverlay: () => void
+  toggleStateCapitals: () => void
 }
 
 export const useGlobeStore = create<GlobeState>((set) => ({
@@ -42,6 +48,8 @@ export const useGlobeStore = create<GlobeState>((set) => ({
   flyToTarget: null,
   locationHistory: [],
   pins: [],
+  showDetailOverlay: true,
+  showStateCapitals: true,
   selectEntity: (entity) => set({ selectedEntity: entity }),
   clearSelection: () => set({ selectedEntity: null }),
   setGlobeReady: (ready) => set({ globeReady: ready }),
@@ -70,4 +78,6 @@ export const useGlobeStore = create<GlobeState>((set) => ({
       }
     }),
   clearFlyToTarget: () => set({ flyToTarget: null }),
+  toggleDetailOverlay: () => set((s) => ({ showDetailOverlay: !s.showDetailOverlay })),
+  toggleStateCapitals: () => set((s) => ({ showStateCapitals: !s.showStateCapitals })),
 }))
