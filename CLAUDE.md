@@ -24,5 +24,8 @@ A browser-based intelligence + financial dashboard. Bloomberg Terminal meets int
 - Signal engine logic in `src/signals/`
 - All API keys proxied through backend (never exposed to client)
 
+## Conventions
+- GLSL shaders in `src/shaders/` as `.glsl.ts` exports
+
 ## Current Phase
-Sprint 6 complete: Signal engine translates GDELT news into financial signals across 8 categories (conflict, sanctions, energy, political, disaster, cyber, monetary, supply-chain). Confidence scoring, severity classification, asset impact mapping. Signal panel with list/detail views. Server-side backtesting framework + paper trading tracker.
+Sprint 7 complete: Intelligence shaders (NVG night vision, FLIR thermal, CRT full emulation) as Cesium PostProcessStages. Media bias system with 60+ sources rated across political spectrum. Globe enhancements: CartoDB dark tile overlay for roads/state borders, 50 US state capital markers, conflict zone overlays (GDELT-sourced), vessel tracking (AIS ship positions). Prediction market integration (Polymarket). Fox News + NewsNation YouTube channels. Toolbar with shader mode selector and layer toggles.
