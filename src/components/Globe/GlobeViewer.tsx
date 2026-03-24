@@ -211,6 +211,13 @@ function GlobeViewer({ children }: GlobeViewerProps) {
       viewer.scene.globe.show = false
       if (viewer.scene.skyAtmosphere) viewer.scene.skyAtmosphere.show = true
       viewer.scene.globe.enableLighting = false
+      // Enable full camera freedom in 3D photo mode
+      const ctrl = viewer.scene.screenSpaceCameraController
+      ctrl.enableTilt = true
+      ctrl.enableLook = true
+      ctrl.enableRotate = true
+      ctrl.minimumZoomDistance = 1
+      ctrl.maximumZoomDistance = 50_000_000
     } else {
       // Restore terminal mode
       viewer.scene.globe.show = true

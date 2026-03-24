@@ -29,40 +29,50 @@ interface VesselPosition {
   lastUpdate: number
 }
 
-const VESSEL_COLOR = '#44aaff'
+const VESSEL_LABEL_COLOR = Color.fromCssColorString('#44aaff')
 
-/** Create a ship icon SVG as data URL */
+/**
+ * Create a proper ship/vessel icon SVG rotated by heading.
+ * Ship shape: hull with bow (pointed front) and stern (flat back).
+ */
 function makeShipIcon(heading: number): string {
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24">
-    <g transform="rotate(${heading}, 12, 12)">
-      <polygon points="12,2 6,20 12,16 18,20" fill="${VESSEL_COLOR}" stroke="#003366" stroke-width="1"/>
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 28 28">
+    <g transform="rotate(${heading}, 14, 14)">
+      <!-- Hull -->
+      <path d="M14,3 L19,12 L19,22 Q14,26 14,26 Q14,26 9,22 L9,12 Z"
+            fill="#44aaff" stroke="#1a4a7a" stroke-width="1.2" stroke-linejoin="round"/>
+      <!-- Bridge/superstructure -->
+      <rect x="11" y="13" width="6" height="4" rx="1" fill="#2266aa" stroke="#1a4a7a" stroke-width="0.5"/>
+      <!-- Bow marker -->
+      <circle cx="14" cy="6" r="1.5" fill="#88ccff"/>
     </g>
   </svg>`
   return `data:image/svg+xml;base64,${btoa(svg)}`
 }
 
-const displayCondition = new DistanceDisplayCondition(0, 12_000_000)
-const labelDisplay = new DistanceDisplayCondition(0, 2_000_000)
-const labelScale = new NearFarScalar(100_000, 1.0, 2_000_000, 0.3)
-const labelFade = new NearFarScalar(200_000, 1.0, 2_000_000, 0.0)
-const billboardScale = new NearFarScalar(100_000, 0.8, 10_000_000, 0.2)
-const labelOffset = new Cartesian2(14, 0)
+const displayCondition = new DistanceDisplayCondition(0, 15_000_000)
+const labelDisplay = new DistanceDisplayCondition(0, 3_000_000)
+const labelScale = new NearFarScalar(100_000, 1.0, 3_000_000, 0.3)
+const labelFade = new NearFarScalar(200_000, 1.0, 3_000_000, 0.0)
+const billboardScale = new NearFarScalar(100_000, 1.0, 12_000_000, 0.25)
+const labelOffset = new Cartesian2(16, 0)
 
 function makeVesselProperties(vessel: VesselPosition): PropertyBag {
   const bag = new PropertyBag()
   bag.addProperty('entityType', new ConstantProperty('vessel'))
   bag.addProperty('mmsi', new ConstantProperty(vessel.mmsi))
   bag.addProperty('shipType', new ConstantProperty(vessel.shipType))
-  bag.addProperty('speed', new ConstantProperty(vessel.speed))
+  bag.addProperty('speed', new ConstantProperty(`${vessel.speed.toFixed(1)} kn`))
   bag.addProperty('flag', new ConstantProperty(vessel.flag))
   bag.addProperty('destination', new ConstantProperty(vessel.destination))
+  bag.addProperty('heading', new ConstantProperty(`${vessel.heading.toFixed(0)}°`))
   return bag
 }
 
 /**
  * Renders vessel/ship position markers on the globe.
- * Uses AIS data from server proxy (mock data for now).
- * Ship icons with heading rotation, blue coloring.
+ * Uses AIS data from server proxy.
+ * Ship-shaped icons rotated by heading, blue coloring.
  */
 export function VesselLayer() {
   const viewMode = useGlobeStore((s) => s.viewMode)
@@ -75,11 +85,16 @@ export function VesselLayer() {
       if (!res.ok) return
       const data = (await res.json()) as { vessels: VesselPosition[] }
       setVessels(data.vessels)
-    } catch { /* ignore */ }
+    } catch {
+      console.warn('[vessels] Failed to fetch vessel data')
+    }
   }, [])
 
   useEffect(() => {
-    if (!showVessels) return
+    if (!showVessels) {
+      setVessels([])
+      return
+    }
     fetchVessels()
     const interval = setInterval(fetchVessels, 120_000) // refresh every 2 min
     return () => clearInterval(interval)
@@ -98,15 +113,15 @@ export function VesselLayer() {
         >
           <BillboardGraphics
             image={makeShipIcon(vessel.heading)}
-            width={20}
-            height={20}
+            width={24}
+            height={24}
             scaleByDistance={billboardScale}
             distanceDisplayCondition={displayCondition}
           />
           <LabelGraphics
-            text={vessel.name}
+            text={`${vessel.name}`}
             font="9px JetBrains Mono, monospace"
-            fillColor={Color.fromCssColorString(VESSEL_COLOR)}
+            fillColor={VESSEL_LABEL_COLOR}
             style={LabelStyle.FILL_AND_OUTLINE}
             outlineColor={Color.BLACK}
             outlineWidth={2}

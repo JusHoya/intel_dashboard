@@ -1,5 +1,5 @@
 /** View modes for the news panel */
-export type NewsViewMode = 'feed' | 'video'
+export type NewsViewMode = 'feed' | 'video' | 'cctv'
 
 /** A news article from GDELT or other source */
 export interface NewsItem {

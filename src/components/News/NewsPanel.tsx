@@ -2,11 +2,13 @@ import { useNewsStore } from '../../store/news'
 import { useNewsFeed } from '../../feeds/news'
 import { NewsFeed } from './NewsFeed'
 import { VideoPlayer } from './VideoPlayer'
+import { CCTVPanel } from './CCTVPanel'
 import type { NewsViewMode } from '../../types/news'
 
 const VIEW_MODES: { id: NewsViewMode; label: string }[] = [
   { id: 'feed', label: 'FEED' },
   { id: 'video', label: 'VIDEO' },
+  { id: 'cctv', label: 'CCTV' },
 ]
 
 export function NewsPanel() {
@@ -58,7 +60,7 @@ export function NewsPanel() {
 
       {/* Content area */}
       <div className="flex-1 overflow-hidden">
-        {viewMode === 'feed' ? <NewsFeed /> : <VideoPlayer />}
+        {viewMode === 'feed' ? <NewsFeed /> : viewMode === 'cctv' ? <CCTVPanel /> : <VideoPlayer />}
       </div>
     </div>
   )
