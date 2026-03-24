@@ -1,5 +1,6 @@
 import { useState, useMemo, useCallback } from 'react'
 import { useSignalStore } from '../../store/signals'
+import { PredictionPanel } from './PredictionPanel'
 import type {
   IntelSignal,
   SignalCategory,
@@ -70,7 +71,7 @@ const ALL_CATEGORIES: SignalCategory[] = [
   'supply-chain',
 ]
 
-type ViewMode = 'active' | 'detail'
+type ViewMode = 'active' | 'detail' | 'predictions'
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -529,6 +530,17 @@ export function SignalPanel() {
           >
             DETAIL
           </button>
+          <button
+            type="button"
+            onClick={() => setViewMode('predictions')}
+            className={`px-2 py-0.5 font-mono text-[10px] uppercase tracking-wider transition-colors ${
+              viewMode === 'predictions'
+                ? 'bg-[#aa66ff]/10 text-[#aa66ff]'
+                : 'text-neutral-600 hover:text-neutral-400'
+            }`}
+          >
+            PREDICT
+          </button>
         </div>
       </div>
 
@@ -612,6 +624,8 @@ export function SignalPanel() {
               </span>
             </div>
           ))}
+
+        {viewMode === 'predictions' && <PredictionPanel />}
       </div>
     </div>
   )

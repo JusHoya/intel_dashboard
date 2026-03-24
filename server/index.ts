@@ -1238,6 +1238,288 @@ app.get('/api/paper/performance', (_req, res) => {
   res.json(getPerformanceSummary())
 })
 
+/* ══════════════════════════════════════════════════════════════════════
+   CONFLICT ZONE OVERLAY — ACLED-style conflict event data
+   ══════════════════════════════════════════════════════════════════════ */
+
+interface ConflictEvent {
+  id: string
+  date: string
+  type: string
+  subType: string
+  country: string
+  region: string
+  latitude: number
+  longitude: number
+  fatalities: number
+  description: string
+  source: string
+}
+
+let conflictCache: { events: ConflictEvent[]; fetchedAt: number } | null = null
+const CONFLICT_CACHE_TTL = 3_600_000 // 1 hour
+
+/**
+ * Generate conflict events from GDELT GKG (Global Knowledge Graph).
+ * Uses GDELT to identify conflict-related articles with geolocations.
+ */
+async function fetchConflictEvents(): Promise<ConflictEvent[]> {
+  const query = encodeURIComponent('(conflict OR attack OR battle OR bombing OR airstrike OR shelling OR clashes OR military operation)')
+  const url = `https://api.gdeltproject.org/api/v2/doc/doc?query=${query}+sourcelang:english&mode=artlist&maxrecords=80&format=json`
+
+  const response = await fetch(url, { signal: AbortSignal.timeout(15_000) })
+  if (!response.ok) throw new Error(`GDELT returned ${response.status}`)
+
+  const contentType = response.headers.get('content-type') ?? ''
+  if (!contentType.includes('json')) throw new Error('GDELT returned non-JSON')
+
+  const data = (await response.json()) as { articles?: Array<{
+    url: string; title: string; seendate: string; domain: string
+    sourcecountry: string; tone: string; socialimage: string
+  }> }
+
+  if (!data.articles) return []
+
+  // Extract conflict events with approximate geolocation from country
+  const countryCoords: Record<string, { lat: number; lon: number }> = {
+    UA: { lat: 48.38, lon: 31.17 }, RU: { lat: 55.75, lon: 37.62 },
+    SY: { lat: 34.80, lon: 38.99 }, IQ: { lat: 33.31, lon: 44.37 },
+    AF: { lat: 34.53, lon: 69.17 }, YE: { lat: 15.37, lon: 44.19 },
+    SD: { lat: 15.50, lon: 32.56 }, MM: { lat: 19.76, lon: 96.07 },
+    SO: { lat: 2.05, lon: 45.32 }, CD: { lat: -4.32, lon: 15.31 },
+    ET: { lat: 9.02, lon: 38.75 }, NG: { lat: 9.06, lon: 7.49 },
+    ML: { lat: 12.64, lon: -8.00 }, PS: { lat: 31.95, lon: 35.23 },
+    IL: { lat: 31.77, lon: 35.22 }, LB: { lat: 33.89, lon: 35.50 },
+    PK: { lat: 33.69, lon: 73.04 }, LY: { lat: 32.90, lon: 13.18 },
+    MZ: { lat: -12.98, lon: 40.52 }, CF: { lat: 4.36, lon: 18.55 },
+    CM: { lat: 3.85, lon: 11.50 }, HT: { lat: 18.54, lon: -72.34 },
+    CO: { lat: 4.71, lon: -74.07 }, MX: { lat: 19.43, lon: -99.13 },
+  }
+
+  const events: ConflictEvent[] = []
+  for (let i = 0; i < data.articles.length; i++) {
+    const article = data.articles[i]
+    const cc = article.sourcecountry?.toUpperCase()
+    const coords = countryCoords[cc]
+    if (!coords) continue
+
+    // Add randomized offset to spread markers within country
+    const jitterLat = (Math.random() - 0.5) * 4
+    const jitterLon = (Math.random() - 0.5) * 4
+
+    const tone = parseFloat(article.tone?.split(',')[0] || '0')
+    const severity = Math.abs(tone) > 5 ? 'high' : Math.abs(tone) > 2 ? 'medium' : 'low'
+
+    events.push({
+      id: `conflict-${i}-${Date.now()}`,
+      date: article.seendate || new Date().toISOString(),
+      type: severity === 'high' ? 'Battle' : 'Violence against civilians',
+      subType: article.title.toLowerCase().includes('airstrike') ? 'Air/drone strike'
+        : article.title.toLowerCase().includes('bomb') ? 'Bombing/explosion'
+        : article.title.toLowerCase().includes('protest') ? 'Protest'
+        : 'Armed clash',
+      country: cc,
+      region: article.domain,
+      latitude: coords.lat + jitterLat,
+      longitude: coords.lon + jitterLon,
+      fatalities: 0,
+      description: article.title,
+      source: article.domain,
+    })
+  }
+
+  return events
+}
+
+app.get('/api/conflicts', async (_req, res) => {
+  // Return cache if fresh
+  if (conflictCache && Date.now() - conflictCache.fetchedAt < CONFLICT_CACHE_TTL) {
+    res.json({ events: conflictCache.events })
+    return
+  }
+
+  try {
+    const events = await fetchConflictEvents()
+    conflictCache = { events, fetchedAt: Date.now() }
+    console.log(`[conflicts] Fetched ${events.length} conflict events`)
+    res.json({ events })
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : String(error)
+    console.warn(`[conflicts] Failed: ${msg}`)
+    if (conflictCache) {
+      res.json({ events: conflictCache.events })
+    } else {
+      res.status(502).json({ error: 'Conflict data unavailable' })
+    }
+  }
+})
+
+/* ══════════════════════════════════════════════════════════════════════
+   PREDICTION MARKETS — Polymarket integration
+   ══════════════════════════════════════════════════════════════════════ */
+
+interface PredictionMarket {
+  id: string
+  question: string
+  category: string
+  probability: number
+  volume: number
+  endDate: string
+  url: string
+  outcomes: { name: string; probability: number }[]
+}
+
+let predictionCache: { markets: PredictionMarket[]; fetchedAt: number } | null = null
+const PREDICTION_CACHE_TTL = 600_000 // 10 minutes
+
+app.get('/api/predictions', async (_req, res) => {
+  // Return cache if fresh
+  if (predictionCache && Date.now() - predictionCache.fetchedAt < PREDICTION_CACHE_TTL) {
+    res.json({ markets: predictionCache.markets })
+    return
+  }
+
+  try {
+    // Fetch active geopolitical/news markets from Polymarket CLOB API
+    const response = await fetch(
+      'https://clob.polymarket.com/markets?limit=20&active=true&closed=false',
+      { signal: AbortSignal.timeout(10_000) },
+    )
+
+    if (!response.ok) throw new Error(`Polymarket returned ${response.status}`)
+    const data = (await response.json()) as Array<{
+      condition_id: string; question: string; tokens: Array<{
+        token_id: string; outcome: string; price: number
+      }>; end_date_iso: string; active: boolean; closed: boolean
+      volume_num_min: number; market_slug: string; description: string
+    }>
+
+    const markets: PredictionMarket[] = data
+      .filter((m) => m.active && !m.closed)
+      .slice(0, 20)
+      .map((m) => ({
+        id: m.condition_id,
+        question: m.question,
+        category: categorizeMarket(m.question),
+        probability: m.tokens?.[0]?.price ?? 0.5,
+        volume: m.volume_num_min ?? 0,
+        endDate: m.end_date_iso,
+        url: `https://polymarket.com/event/${m.market_slug}`,
+        outcomes: (m.tokens || []).map((t) => ({
+          name: t.outcome,
+          probability: t.price,
+        })),
+      }))
+
+    predictionCache = { markets, fetchedAt: Date.now() }
+    console.log(`[predictions] Fetched ${markets.length} active markets`)
+    res.json({ markets })
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : String(error)
+    console.warn(`[predictions] Failed: ${msg}`)
+    if (predictionCache) {
+      res.json({ markets: predictionCache.markets })
+    } else {
+      // Fallback with sample geopolitical markets
+      res.json({ markets: [] })
+    }
+  }
+})
+
+function categorizeMarket(question: string): string {
+  const q = question.toLowerCase()
+  if (q.includes('war') || q.includes('conflict') || q.includes('military') || q.includes('invasion')) return 'conflict'
+  if (q.includes('election') || q.includes('president') || q.includes('vote') || q.includes('party')) return 'politics'
+  if (q.includes('bitcoin') || q.includes('crypto') || q.includes('price') || q.includes('market')) return 'markets'
+  if (q.includes('ai') || q.includes('tech') || q.includes('openai') || q.includes('google')) return 'technology'
+  if (q.includes('climate') || q.includes('hurricane') || q.includes('earthquake')) return 'disaster'
+  return 'geopolitics'
+}
+
+/* ══════════════════════════════════════════════════════════════════════
+   VESSEL TRACKING — AIS ship position data
+   ══════════════════════════════════════════════════════════════════════ */
+
+interface VesselPosition {
+  mmsi: string
+  name: string
+  latitude: number
+  longitude: number
+  course: number
+  speed: number
+  heading: number
+  shipType: string
+  flag: string
+  destination: string
+  lastUpdate: number
+}
+
+let vesselCache: { vessels: VesselPosition[]; fetchedAt: number } | null = null
+const VESSEL_CACHE_TTL = 120_000 // 2 minutes
+
+/** Generate realistic vessel positions along major shipping lanes */
+function generateMockVessels(): VesselPosition[] {
+  const shippingLanes: Array<{
+    name: string; route: [number, number][]; type: string; flag: string; dest: string
+  }> = [
+    { name: 'EVER GIVEN', route: [[30.0, 32.3], [31.5, 32.5]], type: 'Container', flag: 'PA', dest: 'Rotterdam' },
+    { name: 'MSC OSCAR', route: [[1.3, 103.8], [5.0, 100.0]], type: 'Container', flag: 'PA', dest: 'Singapore' },
+    { name: 'MAERSK EDINBURGH', route: [[51.0, 1.5], [48.0, -5.0]], type: 'Container', flag: 'DK', dest: 'Le Havre' },
+    { name: 'ATLANTIC CROWN', route: [[40.5, -74.0], [38.0, -65.0]], type: 'Container', flag: 'LR', dest: 'New York' },
+    { name: 'PACIFIC BREEZE', route: [[35.0, 139.7], [33.0, 132.0]], type: 'Bulk Carrier', flag: 'JP', dest: 'Osaka' },
+    { name: 'COSCO SHIPPING ARIES', route: [[22.3, 114.2], [25.0, 118.0]], type: 'Container', flag: 'CN', dest: 'Xiamen' },
+    { name: 'SONGA CRYSTAL', route: [[59.9, 5.3], [56.0, 10.0]], type: 'Tanker', flag: 'NO', dest: 'Stavanger' },
+    { name: 'NS CHAMPION', route: [[29.3, 48.0], [26.0, 56.0]], type: 'Tanker', flag: 'GR', dest: 'Fujairah' },
+    { name: 'GOLDEN CARRIER', route: [[-33.9, 18.4], [-30.0, 25.0]], type: 'Bulk Carrier', flag: 'MH', dest: 'Cape Town' },
+    { name: 'STENA IMPERO', route: [[26.6, 56.3], [25.0, 58.0]], type: 'Tanker', flag: 'GB', dest: 'Hormuz' },
+    { name: 'CABO HELLAS', route: [[36.0, -5.3], [35.8, -5.6]], type: 'Tanker', flag: 'GR', dest: 'Gibraltar' },
+    { name: 'MSC GULSUN', route: [[12.0, 45.0], [11.5, 43.5]], type: 'Container', flag: 'PA', dest: 'Aden' },
+    { name: 'ENERGY CENTURION', route: [[28.5, -88.5], [26.0, -90.0]], type: 'Tanker', flag: 'MH', dest: 'Houston' },
+    { name: 'CAPE MARIN', route: [[-34.0, 151.2], [-35.5, 149.0]], type: 'Bulk Carrier', flag: 'SG', dest: 'Sydney' },
+    { name: 'NORTHERN JUBILEE', route: [[57.0, -2.0], [55.0, 1.0]], type: 'Tanker', flag: 'GB', dest: 'Aberdeen' },
+    { name: 'CMA CGM RIVOLI', route: [[43.3, 5.4], [41.0, 9.0]], type: 'Container', flag: 'FR', dest: 'Marseille' },
+    { name: 'K LINE BRIDGE', route: [[34.4, 135.2], [35.0, 140.0]], type: 'Car Carrier', flag: 'JP', dest: 'Yokohama' },
+    { name: 'BW ORINOCO', route: [[10.0, -61.0], [9.0, -58.0]], type: 'Tanker', flag: 'SG', dest: 'Trinidad' },
+    { name: 'GRAN COUVA', route: [[-23.0, -43.2], [-25.0, -45.0]], type: 'Bulk Carrier', flag: 'BR', dest: 'Santos' },
+    { name: 'POLAR ENTERPRISE', route: [[64.1, -21.9], [60.0, -15.0]], type: 'Tanker', flag: 'IS', dest: 'Reykjavik' },
+  ]
+
+  return shippingLanes.map((lane, idx) => {
+    const t = Math.random()
+    const [p1, p2] = lane.route
+    const lat = p1[0] + (p2[0] - p1[0]) * t + (Math.random() - 0.5) * 2
+    const lon = p1[1] + (p2[1] - p1[1]) * t + (Math.random() - 0.5) * 2
+    const course = Math.atan2(p2[1] - p1[1], p2[0] - p1[0]) * (180 / Math.PI)
+
+    return {
+      mmsi: `${210000000 + idx * 111111}`,
+      name: lane.name,
+      latitude: lat,
+      longitude: lon,
+      course: ((course % 360) + 360) % 360,
+      speed: 8 + Math.random() * 14,
+      heading: ((course % 360) + 360) % 360,
+      shipType: lane.type,
+      flag: lane.flag,
+      destination: lane.dest,
+      lastUpdate: Math.floor(Date.now() / 1000),
+    }
+  })
+}
+
+app.get('/api/vessels', (_req, res) => {
+  // For now, use mock data — real AIS requires a paid API or AISHub membership
+  if (vesselCache && Date.now() - vesselCache.fetchedAt < VESSEL_CACHE_TTL) {
+    res.json({ vessels: vesselCache.vessels })
+    return
+  }
+
+  const vessels = generateMockVessels()
+  vesselCache = { vessels, fetchedAt: Date.now() }
+  console.log(`[vessels] Generated ${vessels.length} vessel positions`)
+  res.json({ vessels })
+})
+
 /* ══════════════════════════════════════════════════════════════════════ */
 
 app.listen(PORT, () => {
@@ -1250,5 +1532,6 @@ app.listen(PORT, () => {
   console.log(`         /api/signals/backtest, /api/signals/backtest/status`)
   console.log(`         /api/paper/positions, /api/paper/trade, /api/paper/close`)
   console.log(`         /api/paper/update-prices, /api/paper/performance`)
+  console.log(`         /api/conflicts, /api/predictions, /api/vessels`)
   console.log(`[server] CORS enabled for localhost origins`)
 })

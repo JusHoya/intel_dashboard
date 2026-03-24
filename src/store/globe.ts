@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import type { GlobeEntity } from '../types'
+import type { ShaderMode } from '../shaders'
 
 type ViewMode = 'terminal' | 'photorealistic'
 
@@ -27,6 +28,12 @@ interface GlobeState {
   showDetailOverlay: boolean
   /** Show US state capital markers */
   showStateCapitals: boolean
+  /** Active visual shader mode */
+  shaderMode: ShaderMode
+  /** Show conflict zone markers */
+  showConflicts: boolean
+  /** Show vessel/ship markers */
+  showVessels: boolean
   selectEntity: (entity: GlobeEntity) => void
   clearSelection: () => void
   setGlobeReady: (ready: boolean) => void
@@ -37,6 +44,9 @@ interface GlobeState {
   clearFlyToTarget: () => void
   toggleDetailOverlay: () => void
   toggleStateCapitals: () => void
+  setShaderMode: (mode: ShaderMode) => void
+  toggleConflicts: () => void
+  toggleVessels: () => void
 }
 
 export const useGlobeStore = create<GlobeState>((set) => ({
@@ -50,6 +60,9 @@ export const useGlobeStore = create<GlobeState>((set) => ({
   pins: [],
   showDetailOverlay: true,
   showStateCapitals: true,
+  shaderMode: 'none' as ShaderMode,
+  showConflicts: true,
+  showVessels: true,
   selectEntity: (entity) => set({ selectedEntity: entity }),
   clearSelection: () => set({ selectedEntity: null }),
   setGlobeReady: (ready) => set({ globeReady: ready }),
@@ -80,4 +93,7 @@ export const useGlobeStore = create<GlobeState>((set) => ({
   clearFlyToTarget: () => set({ flyToTarget: null }),
   toggleDetailOverlay: () => set((s) => ({ showDetailOverlay: !s.showDetailOverlay })),
   toggleStateCapitals: () => set((s) => ({ showStateCapitals: !s.showStateCapitals })),
+  setShaderMode: (shaderMode) => set({ shaderMode }),
+  toggleConflicts: () => set((s) => ({ showConflicts: !s.showConflicts })),
+  toggleVessels: () => set((s) => ({ showVessels: !s.showVessels })),
 }))

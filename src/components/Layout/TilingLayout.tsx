@@ -9,7 +9,7 @@ import { FinancialPanel } from '../Financial'
 import { NewsPanel } from '../News'
 import { SignalPanel } from '../Signals'
 import { useGlobeStore } from '../../store/globe'
-import { GlobeViewer, CountryLayer, CityMarkers, FlightLayer, TrajectoryLayer, Photorealistic3DLayer, SatelliteLayer, USDetailLayer, StateCapitalMarkers } from '../Globe'
+import { GlobeViewer, CountryLayer, CityMarkers, FlightLayer, TrajectoryLayer, Photorealistic3DLayer, SatelliteLayer, USDetailLayer, StateCapitalMarkers, ShaderLayer, ConflictLayer, VesselLayer } from '../Globe'
 
 export const PANEL_TITLES: Record<PanelId, string> = {
   globe: 'GLOBE',
@@ -39,6 +39,9 @@ function renderTile(id: PanelId, path: number[]) {
             <TrajectoryLayer />
             <SatelliteLayer />
             <USDetailLayer />
+            <ConflictLayer />
+            <VesselLayer />
+            <ShaderLayer />
             <Photorealistic3DLayer />
           </GlobeViewer>
         </div>
